@@ -33,7 +33,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-              YES24_API_KEY: ${{ secrets.YES24_API_KEY }}
+          YES24_API_KEY: "${{ secrets.YES24_API_KEY }}"
         run: python test_save_yes24.py
 
       - name: Run Aladin
