@@ -23,13 +23,24 @@ jobs:
           pip install requests beautifulsoup4 supabase playwright
           playwright install chromium
 
+      # 아래 6개 수집 스텝은 서로 완전히 독립적으로 동작합니다.
+      # continue-on-error: true를 둬서, 예를 들어 Run Kyobo가 타임아웃/차단 등으로
+      # 실패하더라도 Run Yes24 / Run Aladin과 분야별 수집 3개 스텝은 건너뛰지 않고
+      # 계속 실행됩니다(예전에는 이게 없어서 Kyobo 하나가 실패하면 이후 스텝이
+      # 전부 skipped 처리됐습니다). 각 스텝의 실제 성공 여부는 outputs.<id>.outcome
+      # 값으로 마지막 "Check overall collection result" 스텝에서 취합해서 판단합니다
+      # - 개별 수집 스크립트의 수집/저장 로직 자체는 건드리지 않았습니다.
       - name: Run Kyobo
+        id: kyobo
+        continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python test_save_kyobo.py
 
       - name: Run Yes24
+        id: yes24
+        continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -37,17 +48,18 @@ jobs:
         run: python test_save_yes24.py
 
       - name: Run Aladin
+        id: aladin
+        continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python test_save_aladin.py
 
       # 아래 3개 스텝은 분야별(소설/에세이시/인문/경제경영/자기계발/역사) TOP10
-      # 수집을 추가한 것입니다. 위의 종합 TOP100 수집(Run Kyobo / Run Yes24 /
-      # Run Aladin)과는 완전히 별도의 스크립트/Supabase run으로 동작하며,
-      # continue-on-error를 둬서 한 서점의 분야별 수집이 실패해도 나머지
-      # 서점의 분야별 수집과 워크플로 전체 성공 여부에 영향을 주지 않습니다.
+      # 수집입니다. 위의 종합 TOP100 수집(Run Kyobo / Run Yes24 / Run Aladin)과는
+      # 완전히 별도의 스크립트/Supabase run으로 동작합니다.
       - name: Run Kyobo Categories
+        id: kyobo_categories
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -55,6 +67,7 @@ jobs:
         run: python test_save_kyobo_category.py
 
       - name: Run Yes24 Categories
+        id: yes24_categories
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -63,8 +76,47 @@ jobs:
         run: python test_save_yes24_category.py
 
       - name: Run Aladin Categories
+        id: aladin_categories
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python test_save_aladin_category.py
+
+      # 위 6개 스텝 모두에 continue-on-error를 걸어뒀기 때문에, 전부 실패해도
+      # GitHub Actions는 이 job 자체를 자동으로 실패 처리하지 않습니다(각 스텝의
+      # 실패가 "무시된 실패"로 취급되기 때문). 그래서 6개 스텝의 실제 성공/실패
+      # 결과를 여기서 직접 취합해서, 하나라도 성공했으면 워크플로를 success로,
+      # 전부 실패했으면 워크플로를 명시적으로 failure로 만듭니다. 이렇게 해야
+      # "전체 실패인데 화면상으로는 초록색 성공"으로 보이는 상황을 막을 수 있습니다.
+      - name: Check overall collection result
+        if: always()
+        run: |
+          declare -A results=(
+            ["Kyobo"]="${{ steps.kyobo.outcome }}"
+            ["Yes24"]="${{ steps.yes24.outcome }}"
+            ["Aladin"]="${{ steps.aladin.outcome }}"
+            ["Kyobo Categories"]="${{ steps.kyobo_categories.outcome }}"
+            ["Yes24 Categories"]="${{ steps.yes24_categories.outcome }}"
+            ["Aladin Categories"]="${{ steps.aladin_categories.outcome }}"
+          )
+
+          echo "=== 수집 스텝별 결과 ==="
+          success_count=0
+          for name in "${!results[@]}"; do
+            outcome="${results[$name]}"
+            echo "  - ${name}: ${outcome}"
+            if [ "$outcome" = "success" ]; then
+              success_count=$((success_count + 1))
+            fi
+          done
+
+          echo ""
+          echo "성공한 스텝 수: ${success_count} / ${#results[@]}"
+
+          if [ "$success_count" -eq 0 ]; then
+            echo "::error::6개 수집 스텝이 전부 실패했습니다. 워크플로를 실패로 표시합니다."
+            exit 1
+          fi
+
+          echo "최소 1개 이상의 수집이 성공했습니다."
