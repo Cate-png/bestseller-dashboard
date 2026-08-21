@@ -36,7 +36,7 @@ from bs4 import BeautifulSoup
 # (test_save_aladin.py의 goto_with_retry)을 그대로 재사용한다. 이 스크립트는
 # 읽기 전용 진단이라 test_save_aladin.py 자체는 전혀 건드리지 않고 import만
 # 한다.
-from test_save_aladin import goto_with_retry, CONTEXT_KWARGS
+from test_save_aladin import goto_with_retry, parse_detail, CONTEXT_KWARGS
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -187,6 +187,28 @@ def diagnose_yes24(page):
             snippet = snippet[:1200] + " ...(생략)"
         print(f"\n[itemUnit {i + 1}]\n{snippet}")
 
+    # 앞의 6개는 우연히 전부 종이책(span.gd_res == '[도서]')이었음. 'Goods/'
+    # 링크 목록에서 미리 확인한 실제 eBook 상품 goods ID들을 콕 집어서, 그
+    # itemUnit의 span.gd_res 값이 종이책과 어떻게 다른지 직접 확인한다.
+    known_ebook_goods_ids = ["146281444", "195131395", "177150859"]
+    print("\n--- 알려진 eBook 상품(goods ID)의 itemUnit에서 span.gd_res 값 확인 ---")
+    for goods_id in known_ebook_goods_ids:
+        unit = None
+        for u in units:
+            link = u.select_one(f"a[href*='/product/goods/{goods_id}']")
+            if link:
+                unit = u
+                break
+        if not unit:
+            print(f"  goods/{goods_id}: 해당 itemUnit을 찾지 못함")
+            continue
+        gd_res = unit.select_one("span.gd_res")
+        gd_name = unit.select_one("a.gd_name")
+        print(
+            f"  goods/{goods_id}: gd_res={gd_res.get_text(strip=True) if gd_res else '(없음)'}"
+            f" / gd_name={gd_name.get_text(strip=True) if gd_name else '(없음)'}"
+        )
+
 
 def diagnose_aladin(page):
     section("[알라딘] wbest.aspx?BranchType=1&BestType=NowBest (지금 베스트)")
@@ -205,10 +227,45 @@ def diagnose_aladin(page):
 
     boxes = soup.select("div.ss_book_box")
     print(f"\n기존 selector(div.ss_book_box) 매칭 개수: {len(boxes)}")
+    items = []
     for i, box in enumerate(boxes[:15]):
         title_tag = box.select_one("a.bo3")
         title = title_tag.get_text(strip=True) if title_tag else "(제목 파싱 실패)"
+        href = title_tag.get("href", "") if title_tag else ""
+        if href and href.startswith("/"):
+            href = "https://www.aladin.co.kr" + href
+        items.append({"title": title, "url": href})
         print(f"  [{i + 1}] {title}")
+
+    # 1차 진단에서 상위 15개 중 '[세트] 피를 마시는 새 오디오북', '감쪽같은
+    # 수정 테이프 무소음' 처럼 도서가 아닌 상품(오디오북 세트, 문구류)이
+    # 섞여 있는 것을 확인했음. 이런 항목이 기존 상세페이지 파싱
+    # (parse_detail, isbn13 메타 태그 기준)에서 실제로 isbn13이 안 잡히는지
+    # -> "isbn13 없으면 도서 아님으로 보고 제외"가 안전한 필터인지 확인한다.
+    print("\n--- 의심 항목(도서 아닐 가능성) + 대조군 1건의 상세페이지 isbn13 확인 ---")
+    suspects_by_title = [
+        "[세트] 피를 마시는 새 오디오북 (총8권)",
+        "감쪽같은 수정 테이프 무소음 (총3m)",
+    ]
+    to_check = [it for it in items if it["title"] in suspects_by_title]
+    control = next((it for it in items if it["title"] not in suspects_by_title), None)
+    if control:
+        to_check.append(control)
+    for it in to_check:
+        if not it["url"]:
+            print(f"  '{it['title']}': URL을 못 찾아 상세페이지 확인 불가")
+            continue
+        try:
+            detail_html = goto_with_retry(page, it["url"])
+            detail = parse_detail(detail_html)
+        except Exception as e:
+            print(f"  '{it['title']}': 상세페이지 조회 실패 ({e})")
+            continue
+        print(
+            f"  '{it['title']}': isbn13={detail['isbn13'] or '(없음)'}"
+            f" / author={detail['author'] or '(없음)'}"
+            f" / publisher={detail['publisher'] or '(없음)'}"
+        )
 
     if not boxes:
         print(
