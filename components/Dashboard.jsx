@@ -119,6 +119,48 @@ function BookColumn({ bookstore, rows, error, query, onlyWisdom }) {
   );
 }
 
+// 실시간 베스트셀러 탭 전용: 서점별로 접었다 펼 수 있는 아코디언 섹션.
+// BookColumn과 표시 내용(BookRow)은 동일하지만, 헤더를 눌러 열고 닫을 수 있습니다.
+function RealtimeAccordionSection({ bookstore, rows, error, query, onlyWisdom, open, onToggle }) {
+  const visibleRows = rows.filter(
+    (r) => matchesSearch(r, query) && (!onlyWisdom || isWisdomHouse(r.publisher))
+  );
+
+  return (
+    <div className={`realtime-section${open ? "" : " collapsed"}`}>
+      <button
+        type="button"
+        className={`realtime-section-header ${COLUMN_CLASS[bookstore] || ""}`}
+        onClick={onToggle}
+        aria-expanded={open}
+      >
+        <span>
+          {bookstore}{" "}
+          <span className="column-count">
+            ({visibleRows.length}/{rows.length})
+          </span>
+        </span>
+        <span className="realtime-toggle-icon">▾</span>
+      </button>
+      {open && (
+        <div className="book-list">
+          {error && rows.length === 0 && (
+            <div style={{ padding: 12, fontSize: 13, color: "#a00" }}>{error}</div>
+          )}
+          {rows.length > 0 && visibleRows.length === 0 && (
+            <div style={{ padding: 12, fontSize: 13, color: "#999" }}>
+              조건에 맞는 도서가 없습니다.
+            </div>
+          )}
+          {visibleRows.map((row) => (
+            <BookRow key={`${bookstore}-realtime-${row.rank}`} row={row} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrendCard({ title, children }) {
   return (
     <div className="trend-card">
@@ -129,6 +171,7 @@ function TrendCard({ title, children }) {
 }
 
 const TOTAL_CATEGORY = "종합";
+const REALTIME_TAB = "실시간 베스트셀러";
 
 export default function Dashboard({
   bookstores,
@@ -140,16 +183,36 @@ export default function Dashboard({
   categories = [],
   categoryData = {},
   categoryErrors = {},
+  realtimeData = {},
+  realtimeErrors = {},
 }) {
   const [query, setQuery] = useState("");
   const [onlyWisdom, setOnlyWisdom] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(TOTAL_CATEGORY);
+  const [realtimeOpen, setRealtimeOpen] = useState(() =>
+    Object.fromEntries(bookstores.map((b) => [b, true]))
+  );
 
-  const tabs = useMemo(() => [TOTAL_CATEGORY, ...categories], [categories]);
+  const toggleRealtimeOpen = (bookstore) =>
+    setRealtimeOpen((prev) => ({ ...prev, [bookstore]: !prev[bookstore] }));
+
+  const tabs = useMemo(
+    () => [TOTAL_CATEGORY, ...categories, REALTIME_TAB],
+    [categories]
+  );
   const isTotal = selectedCategory === TOTAL_CATEGORY;
+  const isRealtime = selectedCategory === REALTIME_TAB;
 
-  const activeStoreData = isTotal ? storeData : categoryData[selectedCategory] || {};
-  const activeErrors = isTotal ? errors : categoryErrors[selectedCategory] || {};
+  const activeStoreData = isRealtime
+    ? realtimeData
+    : isTotal
+    ? storeData
+    : categoryData[selectedCategory] || {};
+  const activeErrors = isRealtime
+    ? realtimeErrors
+    : isTotal
+    ? errors
+    : categoryErrors[selectedCategory] || {};
 
   const activeCollectedAt = useMemo(() => {
     if (isTotal) return collectedAt;
@@ -253,18 +316,35 @@ export default function Dashboard({
         </div>
       )}
 
-      <div className="columns">
-        {bookstores.map((bookstore) => (
-          <BookColumn
-            key={bookstore}
-            bookstore={bookstore}
-            rows={activeStoreData[bookstore] || []}
-            error={activeErrors[bookstore]}
-            query={query}
-            onlyWisdom={onlyWisdom}
-          />
-        ))}
-      </div>
+      {isRealtime ? (
+        <div className="realtime-accordion">
+          {bookstores.map((bookstore) => (
+            <RealtimeAccordionSection
+              key={bookstore}
+              bookstore={bookstore}
+              rows={activeStoreData[bookstore] || []}
+              error={activeErrors[bookstore]}
+              query={query}
+              onlyWisdom={onlyWisdom}
+              open={realtimeOpen[bookstore] !== false}
+              onToggle={() => toggleRealtimeOpen(bookstore)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="columns">
+          {bookstores.map((bookstore) => (
+            <BookColumn
+              key={bookstore}
+              bookstore={bookstore}
+              rows={activeStoreData[bookstore] || []}
+              error={activeErrors[bookstore]}
+              query={query}
+              onlyWisdom={onlyWisdom}
+            />
+          ))}
+        </div>
+      )}
 
       {isTotal && (
       <div className="trend-section">
@@ -384,6 +464,7 @@ export default function Dashboard({
       </div>
       )}
 
+      {!isRealtime && (
       <div className="insight-section">
         <h2>트렌드 키워드</h2>
         {trendKeywords.length === 0 ? (
@@ -415,6 +496,7 @@ export default function Dashboard({
           </ul>
         )}
       </div>
+      )}
     </div>
   );
 }
