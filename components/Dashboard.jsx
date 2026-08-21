@@ -186,6 +186,7 @@ export default function Dashboard({
   return (
     <div className="page-shell">
       <div className="header">
+        <img src="/logo.png" alt="위즈덤하우스" className="brand-logo" />
         <h1>[위즈덤하우스] 베스트셀러 현황</h1>
         <div className="meta">{formatDateTime(activeCollectedAt)}</div>
         <div className="category-tabs">
