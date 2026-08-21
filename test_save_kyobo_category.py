@@ -16,11 +16,13 @@ import해서 재사용합니다. test_save_kyobo.py 자체는 전혀 수정하�
 - 분야 하나가 실패해도 나머지 분야 수집은 계속 진행합니다.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY (기존과 동일, 추가 Secret 없음)
+
+상세 페이지 조회는 test_save_kyobo.py와 동일하게 concurrency_utils를 통해
+DETAIL_CONCURRENCY(기본 4)개씩 동시 처리합니다.
 """
 
 import os
 import sys
-import time
 from datetime import datetime, timezone
 
 try:
@@ -36,10 +38,17 @@ except ImportError:
     sys.exit(1)
 
 from categories import CATEGORIES, TOP_N, get_previous_category_ranks
+from concurrency_utils import enrich_details_concurrently
 from test_save_kyobo import fetch_detail, GET_HREF_JS, IMG_SELECTOR
 
 BOOKSTORE = "교보문고"
 DETAIL_REQUEST_DELAY = 2.0
+DETAIL_CONCURRENCY = 4
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
 
 
 def load_top_n_list(page, domestic_code, n=TOP_N):
@@ -70,24 +79,26 @@ def load_top_n_list(page, domestic_code, n=TOP_N):
     return books
 
 
-def enrich_with_details(page, books):
-    total = len(books)
-    for i, book in enumerate(books):
-        print(f"   [{book['rank']}/{total}] 상세 조회 중: {book['title']}")
-        try:
-            detail = fetch_detail(page, book["url"])
-        except Exception as e:
-            print(f"      -> 상세 페이지 조회 실패, 제목/URL만 저장합니다: {e}")
-            detail = {"author": "", "publisher": "", "isbn13": None}
+def _fetch_one_detail(page, book):
+    try:
+        detail = fetch_detail(page, book["url"])
+    except Exception as e:
+        print(f"      -> 상세 페이지 조회 실패, 제목/URL만 저장합니다: {e}")
+        detail = {"author": "", "publisher": "", "isbn13": None}
 
-        book["author"] = detail["author"]
-        book["publisher"] = detail["publisher"]
-        book["isbn13"] = detail["isbn13"]
+    book["author"] = detail["author"]
+    book["publisher"] = detail["publisher"]
+    book["isbn13"] = detail["isbn13"]
 
-        if i < total - 1:
-            time.sleep(DETAIL_REQUEST_DELAY)
 
-    return books
+def enrich_with_details(books):
+    return enrich_details_concurrently(
+        books,
+        fetch_one=_fetch_one_detail,
+        user_agent=USER_AGENT,
+        concurrency=DETAIL_CONCURRENCY,
+        request_delay=DETAIL_REQUEST_DELAY,
+    )
 
 
 def main():
@@ -103,49 +114,46 @@ def main():
     all_books = []
     category_errors = {}
 
-    with sync_playwright() as p:
+    for cat in CATEGORIES:
+        category = cat["category"]
+        print(f"\n=== 교보문고 · {category} TOP{TOP_N} 수집 시작 ===")
         try:
-            browser = p.chromium.launch(headless=True)
-        except Exception as e:
-            print(
-                f"브라우저 실행 실패: {e} "
-                "('playwright install chromium' 실행 여부 확인 필요)"
-            )
-            sys.exit(1)
+            prev_ranks = get_previous_category_ranks(client, BOOKSTORE, category)
 
-        page = browser.new_page(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-            )
-        )
-
-        for cat in CATEGORIES:
-            category = cat["category"]
-            print(f"\n=== 교보문고 · {category} TOP{TOP_N} 수집 시작 ===")
-            try:
-                prev_ranks = get_previous_category_ranks(client, BOOKSTORE, category)
+            # 목록 페이지는 분야마다 짧게 브라우저를 열었다 닫습니다(상세 페이지
+            # 동시 조회용 워커 스레드들이 각자 별도의 Playwright 인스턴스를 쓰기
+            # 때문에, 목록용 인스턴스와 시간상 겹치지 않게 해서 더 단순하고
+            # 안전하게 구성했습니다).
+            with sync_playwright() as p:
+                try:
+                    browser = p.chromium.launch(headless=True)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"브라우저 실행 실패: {e} "
+                        "('playwright install chromium' 실행 여부 확인 필요)"
+                    )
+                page = browser.new_page(user_agent=USER_AGENT)
                 books = load_top_n_list(page, cat["kyobo_domestic_code"], TOP_N)
-                if not books:
-                    raise RuntimeError("목록에서 도서를 하나도 추출하지 못했습니다.")
-                books = enrich_with_details(page, books)
+                browser.close()
 
-                for book in books:
-                    isbn13 = book.get("isbn13")
-                    if isbn13 and isbn13 in prev_ranks:
-                        book["rank_change"] = prev_ranks[isbn13] - book["rank"]
-                    else:
-                        book["rank_change"] = None
-                    book["match_status"] = "matched" if isbn13 else "no_isbn"
-                    book["category"] = category
+            if not books:
+                raise RuntimeError("목록에서 도서를 하나도 추출하지 못했습니다.")
+            books = enrich_with_details(books)
 
-                all_books.extend(books)
-                print(f"   -> {category} {len(books)}권 수집 성공")
-            except Exception as e:
-                category_errors[category] = str(e)
-                print(f"   -> {category} 수집 실패: {e}")
+            for book in books:
+                isbn13 = book.get("isbn13")
+                if isbn13 and isbn13 in prev_ranks:
+                    book["rank_change"] = prev_ranks[isbn13] - book["rank"]
+                else:
+                    book["rank_change"] = None
+                book["match_status"] = "matched" if isbn13 else "no_isbn"
+                book["category"] = category
 
-        browser.close()
+            all_books.extend(books)
+            print(f"   -> {category} {len(books)}권 수집 성공")
+        except Exception as e:
+            category_errors[category] = str(e)
+            print(f"   -> {category} 수집 실패: {e}")
 
     status = "success" if all_books else "failed"
     error_message = "; ".join(f"{c}: {m}" for c, m in category_errors.items()) or None

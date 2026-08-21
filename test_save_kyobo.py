@@ -24,12 +24,18 @@ collection_runs 기록 방식은 test_save_aladin.py와 동일합니다: status 
 'success'/'failed'만 허용하므로, 전체 수집이 끝난 뒤 결과를 한 번에 기록합니다.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
+
+상세 페이지 조회 동시성(concurrency)에 대해:
+- 상세 페이지 100번 순차 방문이 전체 실행 시간의 대부분을 차지해서, 이 부분만
+  concurrency_utils.enrich_details_concurrently()를 통해 제한된 동시 실행
+  (DETAIL_CONCURRENCY=4)으로 바꿨습니다. 목록 페이지 파싱, 상세 페이지
+  파싱(fetch_detail), Supabase 저장 방식, rank_change 계산은 전혀 바뀌지
+  않았습니다 - 상세 페이지를 "몇 개씩 동시에 방문하느냐"만 바뀐 것입니다.
 """
 
 import os
 import re
 import sys
-import time
 from datetime import datetime, timezone
 
 try:
@@ -44,12 +50,20 @@ except ImportError:
     print("오류: supabase 라이브러리가 설치되어 있지 않습니다. (pip install supabase)")
     sys.exit(1)
 
+from concurrency_utils import enrich_details_concurrently
+
 BOOKSTORE = "교보문고"
 CATEGORY = "종합"
 
 LIST_URL = "https://store.kyobobook.co.kr/bestseller/total/weekly"
 TARGET_COUNT = 100
 DETAIL_REQUEST_DELAY = 2.0
+DETAIL_CONCURRENCY = 4
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
 
 GET_HREF_JS = "(img) => img.closest('a') ? img.closest('a').getAttribute('href') : null"
 ISBN13_PATTERN = re.compile(r"/pdt/(\d{13})\.")
@@ -135,24 +149,28 @@ def load_top100_list(page):
     return books
 
 
-def enrich_with_details(page, books):
-    total = len(books)
-    for i, book in enumerate(books):
-        print(f"[{book['rank']}/{total}] 상세 조회 중: {book['title']}")
-        try:
-            detail = fetch_detail(page, book["url"])
-        except Exception as e:
-            print(f"   -> 상세 페이지 조회 실패, 이 도서는 제목/URL만 저장합니다: {e}")
-            detail = {"author": "", "publisher": "", "isbn13": None}
+def _fetch_one_detail(page, book):
+    try:
+        detail = fetch_detail(page, book["url"])
+    except Exception as e:
+        print(f"   -> 상세 페이지 조회 실패, 이 도서는 제목/URL만 저장합니다: {e}")
+        detail = {"author": "", "publisher": "", "isbn13": None}
 
-        book["author"] = detail["author"]
-        book["publisher"] = detail["publisher"]
-        book["isbn13"] = detail["isbn13"]
+    book["author"] = detail["author"]
+    book["publisher"] = detail["publisher"]
+    book["isbn13"] = detail["isbn13"]
 
-        if i < total - 1:
-            time.sleep(DETAIL_REQUEST_DELAY)
 
-    return books
+def enrich_with_details(books):
+    """상세 페이지 방문을 DETAIL_CONCURRENCY(기본 4)개씩 동시 처리합니다.
+    개별 도서 파싱 로직(_fetch_one_detail -> fetch_detail)은 기존과 동일합니다."""
+    return enrich_details_concurrently(
+        books,
+        fetch_one=_fetch_one_detail,
+        user_agent=USER_AGENT,
+        concurrency=DETAIL_CONCURRENCY,
+        request_delay=DETAIL_REQUEST_DELAY,
+    )
 
 
 def get_previous_ranks(client):
@@ -211,21 +229,19 @@ def main():
                     "('playwright install chromium' 실행 여부 확인 필요)"
                 )
 
-            page = browser.new_page(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-                )
-            )
+            page = browser.new_page(user_agent=USER_AGENT)
 
             books = load_top100_list(page)
             if not books:
                 raise RuntimeError("목록에서 도서를 하나도 추출하지 못했습니다.")
 
-            print(f"\n목록 수집 성공: {len(books)}권. 상세 페이지를 순서대로 조회합니다.\n")
-            books = enrich_with_details(page, books)
-
             browser.close()
+
+        print(
+            f"\n목록 수집 성공: {len(books)}권. "
+            f"상세 페이지를 동시성={DETAIL_CONCURRENCY}로 조회합니다.\n"
+        )
+        books = enrich_with_details(books)
     except Exception as e:
         error_message = str(e)
         print(f"\n교보문고 수집이 완전히 실패했습니다: {error_message}")

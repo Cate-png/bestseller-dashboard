@@ -1,14 +1,23 @@
 name: Bestseller Collection
 
+# 서점별(교보/예스24/알라딘)로 job을 분리해서 서로 병렬로 실행합니다.
+# 각 job 내부에서는 "종합 수집 -> 해당 서점의 분야별 수집" 순서를 유지합니다
+# (같은 서점 사이트에 종합/분야별이 동시에 요청을 보내지 않도록). 서로 다른
+# 서점끼리는 완전히 독립적인 job이라 한 서점이 실패해도 다른 서점에는 영향이
+# 없고(GitHub Actions job은 원래도 서로 독립적으로 실행됨), continue-on-error로
+# 같은 서점 안에서도 종합이 실패하면 분야별로 넘어가도록 유지했습니다.
+
 on:
   schedule:
     - cron: "0 21 * * *"
   workflow_dispatch:
 
 jobs:
-  collect:
+  kyobo:
     runs-on: ubuntu-latest
-
+    outputs:
+      total_outcome: ${{ steps.total.outcome }}
+      category_outcome: ${{ steps.category.outcome }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,26 +29,44 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 supabase playwright
+          pip install supabase playwright
           playwright install chromium
 
-      # 아래 6개 수집 스텝은 서로 완전히 독립적으로 동작합니다.
-      # continue-on-error: true를 둬서, 예를 들어 Run Kyobo가 타임아웃/차단 등으로
-      # 실패하더라도 Run Yes24 / Run Aladin과 분야별 수집 3개 스텝은 건너뛰지 않고
-      # 계속 실행됩니다(예전에는 이게 없어서 Kyobo 하나가 실패하면 이후 스텝이
-      # 전부 skipped 처리됐습니다). 각 스텝의 실제 성공 여부는 outputs.<id>.outcome
-      # 값으로 마지막 "Check overall collection result" 스텝에서 취합해서 판단합니다
-      # - 개별 수집 스크립트의 수집/저장 로직 자체는 건드리지 않았습니다.
       - name: Run Kyobo
-        id: kyobo
+        id: total
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python test_save_kyobo.py
 
+      - name: Run Kyobo Categories
+        id: category
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_kyobo_category.py
+
+  yes24:
+    runs-on: ubuntu-latest
+    outputs:
+      total_outcome: ${{ steps.total.outcome }}
+      category_outcome: ${{ steps.category.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests supabase
+
       - name: Run Yes24
-        id: yes24
+        id: total
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -47,27 +74,8 @@ jobs:
           YES24_API_KEY: "${{ secrets.YES24_API_KEY }}"
         run: python test_save_yes24.py
 
-      - name: Run Aladin
-        id: aladin
-        continue-on-error: true
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python test_save_aladin.py
-
-      # 아래 3개 스텝은 분야별(소설/에세이시/인문/경제경영/자기계발/역사) TOP10
-      # 수집입니다. 위의 종합 TOP100 수집(Run Kyobo / Run Yes24 / Run Aladin)과는
-      # 완전히 별도의 스크립트/Supabase run으로 동작합니다.
-      - name: Run Kyobo Categories
-        id: kyobo_categories
-        continue-on-error: true
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python test_save_kyobo_category.py
-
       - name: Run Yes24 Categories
-        id: yes24_categories
+        id: category
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -75,37 +83,68 @@ jobs:
           YES24_API_KEY: "${{ secrets.YES24_API_KEY }}"
         run: python test_save_yes24_category.py
 
+  aladin:
+    runs-on: ubuntu-latest
+    outputs:
+      total_outcome: ${{ steps.total.outcome }}
+      category_outcome: ${{ steps.category.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install beautifulsoup4 supabase playwright
+          playwright install chromium
+
+      - name: Run Aladin
+        id: total
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_aladin.py
+
       - name: Run Aladin Categories
-        id: aladin_categories
+        id: category
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python test_save_aladin_category.py
 
-      # 위 6개 스텝 모두에 continue-on-error를 걸어뒀기 때문에, 전부 실패해도
-      # GitHub Actions는 이 job 자체를 자동으로 실패 처리하지 않습니다(각 스텝의
-      # 실패가 "무시된 실패"로 취급되기 때문). 그래서 6개 스텝의 실제 성공/실패
-      # 결과를 여기서 직접 취합해서, 하나라도 성공했으면 워크플로를 success로,
-      # 전부 실패했으면 워크플로를 명시적으로 failure로 만듭니다. 이렇게 해야
-      # "전체 실패인데 화면상으로는 초록색 성공"으로 보이는 상황을 막을 수 있습니다.
+  # 위 3개 job 모두에 continue-on-error를 쓴 스텝이 들어있어서, job 자체는
+  # (checkout/setup/install만 성공하면) 대체로 "success"로 끝납니다. 그래서
+  # 실제 수집 성공 여부는 job의 성공 여부가 아니라 각 job이 노출한
+  # total_outcome/category_outcome 값으로 판단합니다. 6개 중 하나라도
+  # success면 워크플로 전체는 success, 6개 다 실패하면 이 job에서 명시적으로
+  # exit 1 처리해서 "전체 실패인데 녹색 성공"으로 보이는 상황을 막습니다.
+  check-overall:
+    needs: [kyobo, yes24, aladin]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
       - name: Check overall collection result
-        if: always()
         run: |
           declare -A results=(
-            ["Kyobo"]="${{ steps.kyobo.outcome }}"
-            ["Yes24"]="${{ steps.yes24.outcome }}"
-            ["Aladin"]="${{ steps.aladin.outcome }}"
-            ["Kyobo Categories"]="${{ steps.kyobo_categories.outcome }}"
-            ["Yes24 Categories"]="${{ steps.yes24_categories.outcome }}"
-            ["Aladin Categories"]="${{ steps.aladin_categories.outcome }}"
+            ["Kyobo"]="${{ needs.kyobo.outputs.total_outcome }}"
+            ["Kyobo Categories"]="${{ needs.kyobo.outputs.category_outcome }}"
+            ["Yes24"]="${{ needs.yes24.outputs.total_outcome }}"
+            ["Yes24 Categories"]="${{ needs.yes24.outputs.category_outcome }}"
+            ["Aladin"]="${{ needs.aladin.outputs.total_outcome }}"
+            ["Aladin Categories"]="${{ needs.aladin.outputs.category_outcome }}"
           )
 
           echo "=== 수집 스텝별 결과 ==="
           success_count=0
           for name in "${!results[@]}"; do
             outcome="${results[$name]}"
-            echo "  - ${name}: ${outcome}"
+            echo "  - ${name}: ${outcome:-(job 실패로 실행되지 않음)}"
             if [ "$outcome" = "success" ]; then
               success_count=$((success_count + 1))
             fi

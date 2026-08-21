@@ -21,12 +21,13 @@ requests로 알라딘에 접근하면 "403 Client Error: Forbidden"이 발생했
 - 분야 하나가 실패해도 나머지 분야 수집은 계속 진행합니다.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY (기존과 동일, 추가 Secret 없음)
+
+상세 페이지 조회는 test_save_aladin.py와 동일하게 concurrency_utils를 통해
+DETAIL_CONCURRENCY(기본 4)개씩 동시 처리합니다.
 """
 
 import os
-import random
 import sys
-import time
 from datetime import datetime, timezone
 
 try:
@@ -42,11 +43,19 @@ except ImportError:
     sys.exit(1)
 
 from categories import CATEGORIES, TOP_N, get_previous_category_ranks
-from test_save_aladin import HEADERS, goto_with_retry, parse_list, parse_detail
+from concurrency_utils import enrich_details_concurrently
+from test_save_aladin import (
+    CONTEXT_KWARGS,
+    HEADERS,
+    goto_with_retry,
+    parse_list,
+    parse_detail,
+)
 
 BOOKSTORE = "알라딘"
 LIST_URL = "https://www.aladin.co.kr/shop/common/wbest.aspx"
 DETAIL_REQUEST_DELAY = 2.0
+DETAIL_CONCURRENCY = 4
 
 
 def fetch_category_list_page(page, cid: str) -> str:
@@ -68,25 +77,28 @@ def collect_top_n(page, cid: str, n: int):
     return books[:n]
 
 
-def enrich_with_details(page, books):
-    total = len(books)
-    for i, book in enumerate(books):
-        print(f"   [{book['rank']}/{total}] 상세 조회 중: {book['title']}")
-        try:
-            html = goto_with_retry(page, book["url"])
-            detail = parse_detail(html)
-        except Exception as e:
-            print(f"      -> 상세 페이지 조회 실패, 제목/URL만 저장합니다: {e}")
-            detail = {"author": "", "publisher": "", "isbn13": ""}
+def _fetch_one_detail(page, book):
+    try:
+        html = goto_with_retry(page, book["url"])
+        detail = parse_detail(html)
+    except Exception as e:
+        print(f"      -> 상세 페이지 조회 실패, 제목/URL만 저장합니다: {e}")
+        detail = {"author": "", "publisher": "", "isbn13": ""}
 
-        book["author"] = detail["author"]
-        book["publisher"] = detail["publisher"]
-        book["isbn13"] = detail["isbn13"] or None
+    book["author"] = detail["author"]
+    book["publisher"] = detail["publisher"]
+    book["isbn13"] = detail["isbn13"] or None
 
-        if i < total - 1:
-            time.sleep(DETAIL_REQUEST_DELAY + random.uniform(0, 1.0))
 
-    return books
+def enrich_with_details(books):
+    return enrich_details_concurrently(
+        books,
+        fetch_one=_fetch_one_detail,
+        user_agent=HEADERS["User-Agent"],
+        concurrency=DETAIL_CONCURRENCY,
+        request_delay=DETAIL_REQUEST_DELAY,
+        context_kwargs=CONTEXT_KWARGS,
+    )
 
 
 def main():
@@ -102,46 +114,46 @@ def main():
     all_books = []
     category_errors = {}
 
-    with sync_playwright() as p:
+    for cat in CATEGORIES:
+        category = cat["category"]
+        print(f"\n=== 알라딘 · {category} TOP{TOP_N} 수집 시작 (CID={cat['aladin_cid']}) ===")
         try:
-            browser = p.chromium.launch(headless=True)
-        except Exception as e:
-            print(
-                f"브라우저 실행 실패: {e} "
-                "('playwright install chromium' 실행 여부 확인 필요)"
-            )
-            sys.exit(1)
+            prev_ranks = get_previous_category_ranks(client, BOOKSTORE, category)
 
-        page = browser.new_page(
-            user_agent=HEADERS["User-Agent"],
-            locale="ko-KR",
-            timezone_id="Asia/Seoul",
-        )
-
-        for cat in CATEGORIES:
-            category = cat["category"]
-            print(f"\n=== 알라딘 · {category} TOP{TOP_N} 수집 시작 (CID={cat['aladin_cid']}) ===")
-            try:
-                prev_ranks = get_previous_category_ranks(client, BOOKSTORE, category)
+            # 목록 페이지는 분야마다 짧게 브라우저를 열었다 닫습니다(상세 페이지
+            # 동시 조회용 워커 스레드들이 각자 별도의 Playwright 인스턴스를 쓰기
+            # 때문에, 목록용 인스턴스와 시간상 겹치지 않게 해서 더 단순하고
+            # 안전하게 구성했습니다).
+            with sync_playwright() as p:
+                try:
+                    browser = p.chromium.launch(headless=True)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"브라우저 실행 실패: {e} "
+                        "('playwright install chromium' 실행 여부 확인 필요)"
+                    )
+                page = browser.new_page(
+                    user_agent=HEADERS["User-Agent"], **CONTEXT_KWARGS
+                )
                 books = collect_top_n(page, cat["aladin_cid"], TOP_N)
-                books = enrich_with_details(page, books)
+                browser.close()
 
-                for book in books:
-                    isbn13 = book.get("isbn13")
-                    if isbn13 and isbn13 in prev_ranks:
-                        book["rank_change"] = prev_ranks[isbn13] - book["rank"]
-                    else:
-                        book["rank_change"] = None
-                    book["match_status"] = "matched" if isbn13 else "no_isbn"
-                    book["category"] = category
+            books = enrich_with_details(books)
 
-                all_books.extend(books)
-                print(f"   -> {category} {len(books)}권 수집 성공")
-            except Exception as e:
-                category_errors[category] = str(e)
-                print(f"   -> {category} 수집 실패: {e}")
+            for book in books:
+                isbn13 = book.get("isbn13")
+                if isbn13 and isbn13 in prev_ranks:
+                    book["rank_change"] = prev_ranks[isbn13] - book["rank"]
+                else:
+                    book["rank_change"] = None
+                book["match_status"] = "matched" if isbn13 else "no_isbn"
+                book["category"] = category
 
-        browser.close()
+            all_books.extend(books)
+            print(f"   -> {category} {len(books)}권 수집 성공")
+        except Exception as e:
+            category_errors[category] = str(e)
+            print(f"   -> {category} 수집 실패: {e}")
 
     status = "success" if all_books else "failed"
     error_message = "; ".join(f"{c}: {m}" for c, m in category_errors.items()) or None

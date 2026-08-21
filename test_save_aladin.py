@@ -34,6 +34,13 @@ collection_runs 기록 방식에 대해 미리 밝혀둡니다:
 - 그래도 일시적으로 403/차단 응답이 오는 경우를 대비해, 페이지 요청 하나당 짧은
   대기 후 한 번 더 재시도하는 retry 로직을 추가했습니다.
 
+상세 페이지 조회 동시성(concurrency)에 대해:
+- 상세 페이지 100번 순차 방문이 전체 실행 시간의 대부분을 차지해서, 이 부분만
+  concurrency_utils.enrich_details_concurrently()를 통해 제한된 동시 실행
+  (DETAIL_CONCURRENCY=4)으로 바꿨습니다. 목록 페이지 파싱, 상세 페이지
+  파싱(parse_detail), Supabase 저장 방식, rank_change 계산은 전혀 바뀌지
+  않았습니다.
+
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
 
@@ -57,6 +64,8 @@ except ImportError:
     print("오류: supabase 라이브러리가 설치되어 있지 않습니다. (pip install supabase)")
     sys.exit(1)
 
+from concurrency_utils import enrich_details_concurrently
+
 BOOKSTORE = "알라딘"
 CATEGORY = "종합"
 
@@ -67,11 +76,13 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
     )
 }
+CONTEXT_KWARGS = {"locale": "ko-KR", "timezone_id": "Asia/Seoul"}
 
 DETAIL_REQUEST_DELAY = 2.0
 TARGET_COUNT = 100
 PAGE_RETRY_COUNT = 3
 PAGE_RETRY_BASE_DELAY = 4.0
+DETAIL_CONCURRENCY = 4
 
 
 # ─────────────────────────────────────────────
@@ -189,27 +200,32 @@ def collect_top100(page):
     return all_books[:TARGET_COUNT]
 
 
-def enrich_with_details(page, books):
-    """각 도서의 상세 페이지를 방문해 저자/출판사/ISBN13을 채웁니다.
-    개별 도서 조회가 실패해도 전체를 중단하지 않고, 그 도서만 빈 정보로 남깁니다."""
-    total = len(books)
-    for i, book in enumerate(books):
-        print(f"[{book['rank']}/{total}] 상세 조회 중: {book['title']}")
-        try:
-            html = fetch_detail_page(page, book["url"])
-            detail = parse_detail(html)
-        except Exception as e:
-            print(f"   -> 상세 페이지 조회 실패, 이 도서는 제목/URL만 저장합니다: {e}")
-            detail = {"author": "", "publisher": "", "isbn13": ""}
+def _fetch_one_detail(page, book):
+    """개별 도서 조회가 실패해도 전체를 중단하지 않고, 그 도서만 빈 정보로 남깁니다."""
+    try:
+        html = fetch_detail_page(page, book["url"])
+        detail = parse_detail(html)
+    except Exception as e:
+        print(f"   -> 상세 페이지 조회 실패, 이 도서는 제목/URL만 저장합니다: {e}")
+        detail = {"author": "", "publisher": "", "isbn13": ""}
 
-        book["author"] = detail["author"]
-        book["publisher"] = detail["publisher"]
-        book["isbn13"] = detail["isbn13"] or None
+    book["author"] = detail["author"]
+    book["publisher"] = detail["publisher"]
+    book["isbn13"] = detail["isbn13"] or None
 
-        if i < total - 1:
-            time.sleep(DETAIL_REQUEST_DELAY + random.uniform(0, 1.0))
 
-    return books
+def enrich_with_details(books):
+    """상세 페이지 방문을 DETAIL_CONCURRENCY(기본 4)개씩 동시 처리합니다.
+    개별 도서 파싱 로직(_fetch_one_detail -> fetch_detail_page/parse_detail)은
+    기존과 동일합니다."""
+    return enrich_details_concurrently(
+        books,
+        fetch_one=_fetch_one_detail,
+        user_agent=HEADERS["User-Agent"],
+        concurrency=DETAIL_CONCURRENCY,
+        request_delay=DETAIL_REQUEST_DELAY,
+        context_kwargs=CONTEXT_KWARGS,
+    )
 
 
 def get_previous_ranks(client):
@@ -269,6 +285,9 @@ def main():
     books = []
 
     try:
+        # 목록 페이지는 별도 브라우저로 열었다 닫습니다(상세 페이지 동시 조회용
+        # 워커 스레드들이 각자 별도의 Playwright 인스턴스를 쓰기 때문에, 목록용
+        # 인스턴스와 시간상 겹치지 않게 해서 더 단순하고 안전하게 구성했습니다).
         with sync_playwright() as p:
             try:
                 browser = p.chromium.launch(headless=True)
@@ -279,18 +298,18 @@ def main():
                 )
 
             page = browser.new_page(
-                user_agent=HEADERS["User-Agent"],
-                locale="ko-KR",
-                timezone_id="Asia/Seoul",
+                user_agent=HEADERS["User-Agent"], **CONTEXT_KWARGS
             )
 
-            try:
-                print("알라딘 TOP100 목록 수집 중...")
-                books = collect_top100(page)
-                print(f"목록 수집 성공: {len(books)}권\n")
-                books = enrich_with_details(page, books)
-            finally:
-                browser.close()
+            print("알라딘 TOP100 목록 수집 중...")
+            books = collect_top100(page)
+            browser.close()
+
+        print(
+            f"목록 수집 성공: {len(books)}권. "
+            f"상세 페이지를 동시성={DETAIL_CONCURRENCY}로 조회합니다.\n"
+        )
+        books = enrich_with_details(books)
     except Exception as e:
         error_message = str(e)
         print(f"\n알라딘 수집이 완전히 실패했습니다: {error_message}")
