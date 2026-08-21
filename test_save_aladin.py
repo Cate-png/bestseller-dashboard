@@ -22,16 +22,34 @@ collection_runs 기록 방식에 대해 미리 밝혀둡니다:
   하나라도 수집됐으면 success로, 목록 자체를 못 가져오는 등 완전히 실패했으면 failed로
   기록합니다.
 
+페이지 요청 방식(requests -> Playwright)에 대해:
+- 처음에는 requests로 목록/상세 페이지를 가져왔는데, 로컬에서는 문제없이 동작했지만
+  GitHub Actions에서만 "403 Client Error: Forbidden"으로 실패했습니다. requests는
+  일반 브라우저와 TLS/HTTP 헤더 지문이 달라 알라딘의 봇 차단에 걸리기 쉬운데,
+  같은 워크플로에서 교보문고는 이미 Playwright(Chromium)로 문제없이 수집되고 있어서
+  (동일한 GitHub Actions 러너 IP인데도 정상 동작), 알라딘도 requests 대신 실제
+  Chromium(Playwright)으로 페이지를 열어 HTML을 가져오도록 바꿨습니다. 파싱 로직
+  (parse_list / parse_detail)과 Supabase 저장 방식은 전혀 바꾸지 않았습니다 - 그저
+  HTML을 "어떻게 가져오느냐"만 바뀐 것입니다.
+- 그래도 일시적으로 403/차단 응답이 오는 경우를 대비해, 페이지 요청 하나당 짧은
+  대기 후 한 번 더 재시도하는 retry 로직을 추가했습니다.
+
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
 
 import os
+import random
 import sys
 import time
 from datetime import datetime, timezone
 
-import requests
 from bs4 import BeautifulSoup
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    print("오류: playwright 라이브러리가 설치되어 있지 않습니다.")
+    sys.exit(1)
 
 try:
     from supabase import create_client
@@ -52,28 +70,53 @@ HEADERS = {
 
 DETAIL_REQUEST_DELAY = 2.0
 TARGET_COUNT = 100
+PAGE_RETRY_COUNT = 3
+PAGE_RETRY_BASE_DELAY = 4.0
 
 
 # ─────────────────────────────────────────────
-# 아래 fetch_list_page / parse_list / fetch_detail_page / parse_detail 4개 함수는
-# test_aladin_bestseller.py에서 실제로 검증된 로직을 그대로 가져온 것입니다.
+# 아래 parse_list / parse_detail 함수는 test_aladin_bestseller.py에서 실제로
+# 검증된 로직을 그대로 가져온 것입니다 (HTML 파싱 부분은 바뀐 것이 없습니다).
 # (parse_list에 페이지네이션을 위한 start_rank 인자만 추가했습니다.)
 # ─────────────────────────────────────────────
 
-def fetch_list_page(page_num: int) -> str:
+def goto_with_retry(page, url: str, retries: int = PAGE_RETRY_COUNT) -> str:
+    """Playwright 페이지로 url을 열어 HTML을 반환합니다. 403 등 일시적인 차단
+    응답에 대비해, 실패하면 점점 길어지는 대기 후 재시도합니다."""
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = page.goto(url, timeout=30000)
+            status = response.status if response else None
+            if status and status >= 400:
+                raise RuntimeError(f"HTTP {status} 응답")
+            page.wait_for_timeout(800)
+            return page.content()
+        except Exception as e:
+            last_error = e
+            if attempt < retries:
+                delay = PAGE_RETRY_BASE_DELAY * attempt + random.uniform(0, 2.0)
+                print(
+                    f"      -> 페이지 요청 실패({e}), {delay:.1f}초 대기 후 재시도 "
+                    f"({attempt}/{retries})"
+                )
+                time.sleep(delay)
+    raise RuntimeError(f"페이지 요청이 {retries}번 모두 실패했습니다: {last_error}")
+
+
+def fetch_list_page(page, page_num: int) -> str:
     params = {
         "BestType": "Bestseller",
-        "BranchType": 1,   # 국내도서
-        "CID": 0,          # 0 = 종합(전체 분야)
+        "BranchType": "1",   # 국내도서
+        "CID": "0",          # 0 = 종합(전체 분야)
     }
     if page_num > 1:
-        params["page"] = page_num
-        params["cnt"] = 1000
-        params["SortOrder"] = 1
-    resp = requests.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
-    resp.raise_for_status()
-    resp.encoding = resp.apparent_encoding
-    return resp.text
+        params["page"] = str(page_num)
+        params["cnt"] = "1000"
+        params["SortOrder"] = "1"
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    url = f"{LIST_URL}?{query}"
+    return goto_with_retry(page, url)
 
 
 def parse_list(html: str, start_rank: int):
@@ -100,11 +143,8 @@ def parse_list(html: str, start_rank: int):
     return books
 
 
-def fetch_detail_page(url: str) -> str:
-    resp = requests.get(url, headers=HEADERS, timeout=10)
-    resp.raise_for_status()
-    resp.encoding = resp.apparent_encoding
-    return resp.text
+def fetch_detail_page(page, url: str) -> str:
+    return goto_with_retry(page, url)
 
 
 def parse_detail(html: str):
@@ -137,11 +177,11 @@ def parse_detail(html: str):
 # 여기부터 이번에 새로 추가한 부분
 # ─────────────────────────────────────────────
 
-def collect_top100():
+def collect_top100(page):
     """목록 2페이지(1~50, 51~100)를 가져와 TOP100 도서 목록(제목/URL/순위)을 만듭니다."""
     all_books = []
     for page_num, start_rank in ((1, 1), (2, 51)):
-        html = fetch_list_page(page_num)
+        html = fetch_list_page(page, page_num)
         books = parse_list(html, start_rank)
         if not books:
             raise RuntimeError(f"목록 페이지 {page_num}에서 도서를 하나도 추출하지 못했습니다.")
@@ -149,14 +189,14 @@ def collect_top100():
     return all_books[:TARGET_COUNT]
 
 
-def enrich_with_details(books):
+def enrich_with_details(page, books):
     """각 도서의 상세 페이지를 방문해 저자/출판사/ISBN13을 채웁니다.
     개별 도서 조회가 실패해도 전체를 중단하지 않고, 그 도서만 빈 정보로 남깁니다."""
     total = len(books)
     for i, book in enumerate(books):
         print(f"[{book['rank']}/{total}] 상세 조회 중: {book['title']}")
         try:
-            html = fetch_detail_page(book["url"])
+            html = fetch_detail_page(page, book["url"])
             detail = parse_detail(html)
         except Exception as e:
             print(f"   -> 상세 페이지 조회 실패, 이 도서는 제목/URL만 저장합니다: {e}")
@@ -167,7 +207,7 @@ def enrich_with_details(books):
         book["isbn13"] = detail["isbn13"] or None
 
         if i < total - 1:
-            time.sleep(DETAIL_REQUEST_DELAY)
+            time.sleep(DETAIL_REQUEST_DELAY + random.uniform(0, 1.0))
 
     return books
 
@@ -229,10 +269,28 @@ def main():
     books = []
 
     try:
-        print("알라딘 TOP100 목록 수집 중...")
-        books = collect_top100()
-        print(f"목록 수집 성공: {len(books)}권\n")
-        books = enrich_with_details(books)
+        with sync_playwright() as p:
+            try:
+                browser = p.chromium.launch(headless=True)
+            except Exception as e:
+                raise RuntimeError(
+                    f"브라우저 실행 실패: {e} "
+                    "('playwright install chromium' 실행 여부 확인 필요)"
+                )
+
+            page = browser.new_page(
+                user_agent=HEADERS["User-Agent"],
+                locale="ko-KR",
+                timezone_id="Asia/Seoul",
+            )
+
+            try:
+                print("알라딘 TOP100 목록 수집 중...")
+                books = collect_top100(page)
+                print(f"목록 수집 성공: {len(books)}권\n")
+                books = enrich_with_details(page, books)
+            finally:
+                browser.close()
     except Exception as e:
         error_message = str(e)
         print(f"\n알라딘 수집이 완전히 실패했습니다: {error_message}")

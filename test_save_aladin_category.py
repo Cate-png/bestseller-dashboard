@@ -1,11 +1,17 @@
 """분야별(소설/에세이시/인문/경제경영/자기계발/역사) TOP10 베스트셀러 수집 -> Supabase 저장.
 
 기존 종합 TOP100 수집 스크립트(test_save_aladin.py)에서 실제로 검증된 목록/상세
-페이지 파싱 로직(parse_list, fetch_detail_page, parse_detail)을 그대로
+페이지 파싱 로직(parse_list, parse_detail)과 요청 함수(goto_with_retry)를 그대로
 import해서 재사용합니다. test_save_aladin.py 자체는 전혀 수정하지 않고, 목록
 페이지 요청 시 CID 파라미터만 분야별로 바꿔서 호출합니다.
 
 분야별 CID는 categories.py에 정리되어 있습니다.
+
+페이지 요청 방식(requests -> Playwright)에 대해: test_save_aladin.py와 동일한
+이유로 requests 대신 Playwright(Chromium)로 페이지를 엽니다. GitHub Actions에서
+requests로 알라딘에 접근하면 "403 Client Error: Forbidden"이 발생했는데, 같은
+워크플로에서 Playwright로 접근하는 교보문고는 문제없이 동작했기 때문입니다.
+(자세한 내용은 test_save_aladin.py의 goto_with_retry 주석 참고)
 
 기존 스크립트와의 차이:
 - 분야마다 TOP10까지만 수집합니다 (기존은 TOP100을 위해 2페이지를 조회했지만,
@@ -18,11 +24,16 @@ import해서 재사용합니다. test_save_aladin.py 자체는 전혀 수정하�
 """
 
 import os
+import random
 import sys
 import time
 from datetime import datetime, timezone
 
-import requests
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    print("오류: playwright 라이브러리가 설치되어 있지 않습니다.")
+    sys.exit(1)
 
 try:
     from supabase import create_client
@@ -31,39 +42,38 @@ except ImportError:
     sys.exit(1)
 
 from categories import CATEGORIES, TOP_N, get_previous_category_ranks
-from test_save_aladin import HEADERS, parse_list, fetch_detail_page, parse_detail
+from test_save_aladin import HEADERS, goto_with_retry, parse_list, parse_detail
 
 BOOKSTORE = "알라딘"
 LIST_URL = "https://www.aladin.co.kr/shop/common/wbest.aspx"
 DETAIL_REQUEST_DELAY = 2.0
 
 
-def fetch_category_list_page(cid: str) -> str:
+def fetch_category_list_page(page, cid: str) -> str:
     params = {
         "BestType": "Bestseller",
-        "BranchType": 1,  # 국내도서
+        "BranchType": "1",  # 국내도서
         "CID": cid,
     }
-    resp = requests.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
-    resp.raise_for_status()
-    resp.encoding = resp.apparent_encoding
-    return resp.text
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    url = f"{LIST_URL}?{query}"
+    return goto_with_retry(page, url)
 
 
-def collect_top_n(cid: str, n: int):
-    html = fetch_category_list_page(cid)
+def collect_top_n(page, cid: str, n: int):
+    html = fetch_category_list_page(page, cid)
     books = parse_list(html, start_rank=1)
     if not books:
         raise RuntimeError("목록 페이지에서 도서를 하나도 추출하지 못했습니다.")
     return books[:n]
 
 
-def enrich_with_details(books):
+def enrich_with_details(page, books):
     total = len(books)
     for i, book in enumerate(books):
         print(f"   [{book['rank']}/{total}] 상세 조회 중: {book['title']}")
         try:
-            html = fetch_detail_page(book["url"])
+            html = goto_with_retry(page, book["url"])
             detail = parse_detail(html)
         except Exception as e:
             print(f"      -> 상세 페이지 조회 실패, 제목/URL만 저장합니다: {e}")
@@ -74,7 +84,7 @@ def enrich_with_details(books):
         book["isbn13"] = detail["isbn13"] or None
 
         if i < total - 1:
-            time.sleep(DETAIL_REQUEST_DELAY)
+            time.sleep(DETAIL_REQUEST_DELAY + random.uniform(0, 1.0))
 
     return books
 
@@ -92,28 +102,46 @@ def main():
     all_books = []
     category_errors = {}
 
-    for cat in CATEGORIES:
-        category = cat["category"]
-        print(f"\n=== 알라딘 · {category} TOP{TOP_N} 수집 시작 (CID={cat['aladin_cid']}) ===")
+    with sync_playwright() as p:
         try:
-            prev_ranks = get_previous_category_ranks(client, BOOKSTORE, category)
-            books = collect_top_n(cat["aladin_cid"], TOP_N)
-            books = enrich_with_details(books)
-
-            for book in books:
-                isbn13 = book.get("isbn13")
-                if isbn13 and isbn13 in prev_ranks:
-                    book["rank_change"] = prev_ranks[isbn13] - book["rank"]
-                else:
-                    book["rank_change"] = None
-                book["match_status"] = "matched" if isbn13 else "no_isbn"
-                book["category"] = category
-
-            all_books.extend(books)
-            print(f"   -> {category} {len(books)}권 수집 성공")
+            browser = p.chromium.launch(headless=True)
         except Exception as e:
-            category_errors[category] = str(e)
-            print(f"   -> {category} 수집 실패: {e}")
+            print(
+                f"브라우저 실행 실패: {e} "
+                "('playwright install chromium' 실행 여부 확인 필요)"
+            )
+            sys.exit(1)
+
+        page = browser.new_page(
+            user_agent=HEADERS["User-Agent"],
+            locale="ko-KR",
+            timezone_id="Asia/Seoul",
+        )
+
+        for cat in CATEGORIES:
+            category = cat["category"]
+            print(f"\n=== 알라딘 · {category} TOP{TOP_N} 수집 시작 (CID={cat['aladin_cid']}) ===")
+            try:
+                prev_ranks = get_previous_category_ranks(client, BOOKSTORE, category)
+                books = collect_top_n(page, cat["aladin_cid"], TOP_N)
+                books = enrich_with_details(page, books)
+
+                for book in books:
+                    isbn13 = book.get("isbn13")
+                    if isbn13 and isbn13 in prev_ranks:
+                        book["rank_change"] = prev_ranks[isbn13] - book["rank"]
+                    else:
+                        book["rank_change"] = None
+                    book["match_status"] = "matched" if isbn13 else "no_isbn"
+                    book["category"] = category
+
+                all_books.extend(books)
+                print(f"   -> {category} {len(books)}권 수집 성공")
+            except Exception as e:
+                category_errors[category] = str(e)
+                print(f"   -> {category} 수집 실패: {e}")
+
+        browser.close()
 
     status = "success" if all_books else "failed"
     error_message = "; ".join(f"{c}: {m}" for c, m in category_errors.items()) or None
