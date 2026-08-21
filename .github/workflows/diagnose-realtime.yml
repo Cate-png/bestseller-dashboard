@@ -29,3 +29,22 @@ jobs:
 
       - name: Diagnose realtime pages (read-only, no Supabase writes)
         run: python diagnose_realtime.py
+
+  diagnose-rank-change-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install beautifulsoup4 playwright
+          playwright install chromium
+
+      - name: Diagnose rank_change source (read-only, no Supabase writes)
+        run: python diagnose_rank_change_source.py
