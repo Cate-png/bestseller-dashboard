@@ -1,0 +1,31 @@
+name: Diagnose Realtime Bestseller Pages
+
+# 실시간 베스트셀러 수집기(test_save_*_realtime.py)를 만들기 전에, 3사
+# 실시간 페이지의 실제 구조(도서만 나오는지, 기존 selector가 재사용
+# 가능한지)를 확인하기 위한 1회성 진단 워크플로입니다. Supabase에 아무것도
+# 쓰지 않는 읽기 전용 스크립트(diagnose_realtime.py)만 실행하며, 기존
+# collect.yml(매일 06시 정기 수집)과는 완전히 별개입니다. 수동 실행만
+# 가능하고 스케줄은 없습니다.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install beautifulsoup4 playwright
+          playwright install chromium
+
+      - name: Diagnose realtime pages (read-only, no Supabase writes)
+        run: python diagnose_realtime.py
