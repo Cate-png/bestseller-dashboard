@@ -1,24 +1,37 @@
 """분야별(소설/에세이시/인문/경제경영/자기계발/역사) TOP10 베스트셀러 수집 -> Supabase 저장.
 
-기존 종합 TOP100 수집 스크립트(test_save_kyobo.py)에서 실제로 검증된 로직
-(상세 페이지 파싱 함수 fetch_detail, 목록 페이지의 img selector 등)을 그대로
-import해서 재사용합니다. test_save_kyobo.py 자체는 전혀 수정하지 않고, 이
-스크립트를 실행해도 그쪽 로직에는 아무 영향이 없습니다.
+test_save_kyobo.py와 동일하게 내부 JSON API 기반으로 전환했습니다(기존
+HTML 스크래핑 + 상세페이지 순회 방식 폐기). test_save_kyobo.py의
+fetch_best_seller_page/item_to_book을 그대로 import해서 재사용하고,
+test_save_kyobo.py 자체는 전혀 수정하지 않습니다.
 
 목록 페이지: 교보문고 "온라인 주간 베스트 | 국내도서 | {분야}" 페이지
-(https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/{코드})를
-사용합니다. 분야별 코드는 categories.py에 정리되어 있습니다.
+(https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/{코드})가
+실제로는 다음 API로 데이터를 채웁니다(GitHub Actions에서 실제 네트워크
+응답으로 확인함):
+  https://store.kyobobook.co.kr/api/gw/best/best-seller/online
+    ?page=1&per=20&period=002&dsplDvsnCode=001&dsplTrgtDvsnCode=004
+    &saleCmdtClstCode={분야코드}
+saleCmdtClstCode 값은 기존 categories.py의 kyobo_domestic_code와 동일한
+값(01=소설, 03=에세이/시, 05=인문, 13=경제경영, 15=자기계발, 19=역사)이라
+categories.py의 카테고리 코드를 그대로 재사용합니다. 응답 항목 구조
+(prstRnkn/frmrRnkn/cmdtCode/cmdtName/chrcName/pbcmName 등)도 종합(total)
+API와 동일한 것을 확인했습니다.
 
 기존 스크립트와의 차이:
-- 분야마다 TOP10까지만 수집합니다 (목록 페이지 1페이지만 조회).
+- 분야마다 TOP10까지만 수집합니다 (목록 페이지 1페이지만 조회, per=20 중
+  앞 10건만 사용).
 - collection_runs는 "이번 분야별 수집 전체"를 대표하는 행 1개만 남기고,
   rankings에는 분야별로 category 값을 다르게 저장합니다.
 - 분야 하나가 실패해도 나머지 분야 수집은 계속 진행합니다.
+- rank_change는 API의 frmrRnkn(이전 순위)과 prstRnkn(현재 순위)을 직접
+  비교해서 계산합니다(test_save_kyobo.py의 item_to_book과 동일한 규칙).
+  더 이상 categories.py의 get_previous_category_ranks(직전 Supabase
+  스냅샷 비교)를 쓰지 않습니다 - 이 함수는 알라딘 분야별 수집
+  (test_save_aladin_category.py)이 계속 쓰므로 categories.py에서
+  제거하지 않았습니다.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY (기존과 동일, 추가 Secret 없음)
-
-상세 페이지 조회는 test_save_kyobo.py와 동일하게 concurrency_utils를 통해
-DETAIL_CONCURRENCY(기본 4)개씩 동시 처리합니다.
 """
 
 import os
@@ -37,68 +50,20 @@ except ImportError:
     print("오류: supabase 라이브러리가 설치되어 있지 않습니다. (pip install supabase)")
     sys.exit(1)
 
-from categories import CATEGORIES, TOP_N, get_previous_category_ranks
-from concurrency_utils import enrich_details_concurrently
-from test_save_kyobo import fetch_detail, GET_HREF_JS, IMG_SELECTOR
+from categories import CATEGORIES, TOP_N
+from test_save_kyobo import USER_AGENT, fetch_best_seller_page, item_to_book
 
 BOOKSTORE = "교보문고"
-DETAIL_REQUEST_DELAY = 2.0
-DETAIL_CONCURRENCY = 4
-
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-)
+LIST_URL_BASE = "https://store.kyobobook.co.kr/bestseller/online/weekly/domestic"
 
 
 def load_top_n_list(page, domestic_code, n=TOP_N):
-    list_url = f"https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/{domestic_code}"
+    list_url = f"{LIST_URL_BASE}/{domestic_code}"
     print(f"   목록 페이지 로딩 중... ({list_url})")
-    page.goto(list_url, timeout=30000)
-    page.wait_for_load_state("networkidle", timeout=30000)
-    page.wait_for_timeout(2000)
-
-    imgs = page.locator(IMG_SELECTOR)
-    count = imgs.count()
-    books = []
-    seen_urls = set()
-    rank = 1
-    for i in range(count):
-        if rank > n:
-            break
-        img = imgs.nth(i)
-        title = img.get_attribute("alt")
-        href = img.evaluate(GET_HREF_JS)
-        if not href or href in seen_urls or not title:
-            continue
-        seen_urls.add(href)
-        full_url = href if href.startswith("http") else "https://product.kyobobook.co.kr" + href
-        books.append({"rank": rank, "title": title.strip(), "url": full_url})
-        rank += 1
-
-    return books
-
-
-def _fetch_one_detail(page, book):
-    try:
-        detail = fetch_detail(page, book["url"])
-    except Exception as e:
-        print(f"      -> 상세 페이지 조회 실패, 제목/URL만 저장합니다: {e}")
-        detail = {"author": "", "publisher": "", "isbn13": None}
-
-    book["author"] = detail["author"]
-    book["publisher"] = detail["publisher"]
-    book["isbn13"] = detail["isbn13"]
-
-
-def enrich_with_details(books):
-    return enrich_details_concurrently(
-        books,
-        fetch_one=_fetch_one_detail,
-        user_agent=USER_AGENT,
-        concurrency=DETAIL_CONCURRENCY,
-        request_delay=DETAIL_REQUEST_DELAY,
-    )
+    items = fetch_best_seller_page(page, list_url)
+    books = [item_to_book(item) for item in items if item.get("prstRnkn")]
+    books.sort(key=lambda b: b["rank"])
+    return books[:n]
 
 
 def main():
@@ -118,12 +83,6 @@ def main():
         category = cat["category"]
         print(f"\n=== 교보문고 · {category} TOP{TOP_N} 수집 시작 ===")
         try:
-            prev_ranks = get_previous_category_ranks(client, BOOKSTORE, category)
-
-            # 목록 페이지는 분야마다 짧게 브라우저를 열었다 닫습니다(상세 페이지
-            # 동시 조회용 워커 스레드들이 각자 별도의 Playwright 인스턴스를 쓰기
-            # 때문에, 목록용 인스턴스와 시간상 겹치지 않게 해서 더 단순하고
-            # 안전하게 구성했습니다).
             with sync_playwright() as p:
                 try:
                     browser = p.chromium.launch(headless=True)
@@ -138,15 +97,8 @@ def main():
 
             if not books:
                 raise RuntimeError("목록에서 도서를 하나도 추출하지 못했습니다.")
-            books = enrich_with_details(books)
 
             for book in books:
-                isbn13 = book.get("isbn13")
-                if isbn13 and isbn13 in prev_ranks:
-                    book["rank_change"] = prev_ranks[isbn13] - book["rank"]
-                else:
-                    book["rank_change"] = None
-                book["match_status"] = "matched" if isbn13 else "no_isbn"
                 book["category"] = category
 
             all_books.extend(books)

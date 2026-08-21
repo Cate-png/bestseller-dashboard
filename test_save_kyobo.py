@@ -1,36 +1,35 @@
 """
 교보문고 국내도서 종합(주간) 베스트셀러 TOP100 수집 -> Supabase 저장 스크립트
 
-기반: test_kyobo_bestseller.py 에서 실제로 검증된 로직을 그대로 재사용합니다.
-- 목록 페이지: Playwright로 렌더링 후, product.kyobobook.co.kr/detail/ 링크를 감싼
-  <img alt="도서명">에서 제목을 추출 (검증됨, '새창보기' 오탐 문제 해결된 버전)
-- 상세 페이지 ISBN13: 표지 이미지 파일명 패턴 /pdt/{ISBN13}.  (검증됨)
-- 상세 페이지 저자: <meta property="eg:brandName" content="..."> (검증됨)
-- 상세 페이지 출판사: href에 pbcmCode= 를 포함하는 링크의 텍스트 (검증됨)
-- 상세 페이지 요청 간 딜레이 2초 (기존과 동일)
+내부 JSON API 기반으로 전환 (기존 HTML 스크래핑 + 상세페이지 100개 순회 방식 폐기):
+- 목록 페이지(store.kyobobook.co.kr/bestseller/total/weekly)가 실제로는
+  https://store.kyobobook.co.kr/api/gw/best/best-seller/total?page=N&per=20&period=002&bsslBksClstCode=A
+  라는 내부 JSON API로 데이터를 채우고 있다는 것을 GitHub Actions에서 실제
+  네트워크 응답을 캡처해서 확인했습니다(diagnose_rank_change_source.py /
+  diagnose_kyobo_api.py, 레포에는 미포함). 이 API 응답 항목에 다음 필드가
+  전부 들어있어 상세페이지를 따로 방문할 필요가 없습니다:
+    - prstRnkn: 현재 순위
+    - frmrRnkn: 이전 순위 (0이면 신규 진입 - TOP100 실측 100건 중 9건에서
+      0으로 확인됨, null은 한 번도 나오지 않음)
+    - cmdtCode: ISBN13 (실측 100건 전부 비어있지 않음)
+    - cmdtName / chrcName / pbcmName: 제목 / 저자 / 출판사
+    - saleCmdtid: 상세페이지 URL 생성에 쓰는 상품 ID (예: S000220308313)
 
-정직하게 밝혀야 할 부분 (TOP100 확장 관련):
-- 목록 페이지를 처음 열면 기본으로 약 30권 정도만 렌더링되는 것까지는 확인했지만,
-  나머지(TOP100까지)를 어떤 방식으로 더 불러오는지(무한스크롤/더보기 버튼/페이지
-  파라미터)는 이번 대화에서 실제로 확인한 적이 없습니다.
-- 그래서 특정 버튼 선택자를 추측해서 넣는 대신, "아래로 스크롤을 반복하며 새로
-  로드되는 도서가 있는지 확인"하는 범용적인 방식으로 시도합니다. 만약 이 사이트가
-  스크롤이 아닌 다른 방식(예: 더보기 버튼 클릭)으로 추가 로드된다면, 100권을 못
-  채우고 스크롤이 멈출 것이고, 그 경우 정확히 몇 권까지 로드됐는지와 함께
-  진단 메시지를 출력합니다. 그 경우에도 로드된 만큼은 정상적으로 저장합니다
-  (요청하신 '일부 실패해도 나머지는 저장' 원칙과 동일하게 처리).
+  plain requests로 이 API를 직접 호출하면 403("API Gateway 라이센스
+  키가 없습니다")으로 막힌다는 것도 실제로 확인했습니다. 그래서 임의의
+  키/헤더를 추측해서 흉내내지 않고, 기존과 동일하게 Playwright로 실제
+  페이지를 열어(그러면 브라우저가 정상적으로 필요한 걸 붙여서 요청하므로)
+  그 안에서 발생하는 이 API 응답만 가로채는 방식을 그대로 씁니다.
 
-collection_runs 기록 방식은 test_save_aladin.py와 동일합니다: status 컬럼이
-'success'/'failed'만 허용하므로, 전체 수집이 끝난 뒤 결과를 한 번에 기록합니다.
+  page=1~5(per=20)가 실제로 순위 1~20, 21~40, ..., 81~100을 순서대로
+  채워주는 것도 Playwright로 직접 확인했습니다(기존 HTML 스크래핑
+  버전과 동일한 페이지네이션 구조).
+
+rank_change 계산: frmrRnkn - prstRnkn (frmrRnkn이 0이면 신규 진입으로 보고
+None). Supabase 저장 구조(rankings/books/collection_runs), category="종합"
+구분, match_status 로직, 프론트엔드 표시 규칙은 전혀 바꾸지 않았습니다.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
-
-상세 페이지 조회 동시성(concurrency)에 대해:
-- 상세 페이지 100번 순차 방문이 전체 실행 시간의 대부분을 차지해서, 이 부분만
-  concurrency_utils.enrich_details_concurrently()를 통해 제한된 동시 실행
-  (DETAIL_CONCURRENCY=4)으로 바꿨습니다. 목록 페이지 파싱, 상세 페이지
-  파싱(fetch_detail), Supabase 저장 방식, rank_change 계산은 전혀 바뀌지
-  않았습니다 - 상세 페이지를 "몇 개씩 동시에 방문하느냐"만 바뀐 것입니다.
 """
 
 import os
@@ -50,30 +49,30 @@ except ImportError:
     print("오류: supabase 라이브러리가 설치되어 있지 않습니다. (pip install supabase)")
     sys.exit(1)
 
-from concurrency_utils import enrich_details_concurrently
-
 BOOKSTORE = "교보문고"
 CATEGORY = "종합"
 
 LIST_URL = "https://store.kyobobook.co.kr/bestseller/total/weekly"
 TARGET_COUNT = 100
-DETAIL_REQUEST_DELAY = 2.0
-DETAIL_CONCURRENCY = 4
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 )
 
+# ─────────────────────────────────────────────
+# 아래 fetch_detail / GET_HREF_JS / ISBN13_PATTERN / IMG_SELECTOR는 이
+# 스크립트의 종합 TOP100 수집(main 이하)에서는 더 이상 쓰지 않지만(내부 API로
+# 전환했으므로 상세페이지 방문 자체가 불필요해짐), test_save_kyobo_realtime.py
+# (실시간 베스트셀러 수집기)가 그대로 import해서 쓰고 있어 남겨둡니다.
+# 실시간 수집기 코드는 이번 전환 범위에 포함되지 않아 건드리지 않았습니다.
+# ─────────────────────────────────────────────
+
 GET_HREF_JS = "(img) => img.closest('a') ? img.closest('a').getAttribute('href') : null"
 ISBN13_PATTERN = re.compile(r"/pdt/(\d{13})\.")
 
 IMG_SELECTOR = "a[href*='product.kyobobook.co.kr/detail/'] img"
 
-
-# ─────────────────────────────────────────────
-# 아래는 test_kyobo_bestseller.py에서 실제로 검증된 로직 그대로입니다.
-# ─────────────────────────────────────────────
 
 def fetch_detail(page, url: str):
     page.goto(url, timeout=30000)
@@ -100,46 +99,88 @@ def fetch_detail(page, url: str):
     return {"isbn13": isbn13 or None, "author": author, "publisher": publisher}
 
 
-# ─────────────────────────────────────────────
-# 여기부터 이번에 새로 추가한 부분 (TOP100 스크롤 로딩 + Supabase 저장)
-# ─────────────────────────────────────────────
+def item_to_book(item):
+    """best-seller API 응답의 도서 1건(JSON dict)을 기존 스크립트가 쓰던
+    book dict 모양으로 변환합니다. rank_change는 API가 주는 이전 순위
+    (frmrRnkn)와 현재 순위(prstRnkn)를 직접 비교해서 계산합니다 - 더 이상
+    우리가 저장해둔 직전 Supabase 스냅샷과 비교하지 않습니다."""
+    prst_rank = item.get("prstRnkn")
+    frmr_rank = item.get("frmrRnkn")
+    isbn13 = item.get("cmdtCode") or None
+    sale_cmdtid = item.get("saleCmdtid") or ""
+
+    if frmr_rank and frmr_rank > 0:
+        rank_change = frmr_rank - prst_rank
+    else:
+        # frmrRnkn == 0: 실측으로 확인된 "신규 진입" 표시값(null은 관측되지 않음)
+        rank_change = None
+
+    return {
+        "rank": prst_rank,
+        "title": (item.get("cmdtName") or "").strip(),
+        "author": (item.get("chrcName") or "").strip(),
+        "publisher": (item.get("pbcmName") or "").strip(),
+        "isbn13": isbn13,
+        "url": f"https://product.kyobobook.co.kr/detail/{sale_cmdtid}" if sale_cmdtid else "",
+        "rank_change": rank_change,
+        "match_status": "matched" if isbn13 else "no_isbn",
+    }
+
+
+def fetch_best_seller_page(page, url):
+    """지정한 목록 페이지 URL을 Playwright로 열고, 그 과정에서 발생하는
+    best-seller API JSON 응답을 가로채 반환합니다. API를 직접 호출하지 않고
+    실제 페이지 탐색을 통해서만 데이터를 받습니다(직접 호출은 403으로 막힘)."""
+    captured = []
+
+    def on_response(response):
+        try:
+            resp_url = response.url
+            if "api/gw/best/best-seller/" not in resp_url:
+                return
+            ctype = response.headers.get("content-type", "")
+            if "json" not in ctype:
+                return
+            captured.append(response.json())
+        except Exception:
+            pass
+
+    page.on("response", on_response)
+    try:
+        page.goto(url, timeout=30000)
+        page.wait_for_load_state("networkidle", timeout=30000)
+        page.wait_for_timeout(1500)
+    finally:
+        page.remove_listener("response", on_response)
+
+    if not captured:
+        raise RuntimeError(f"best-seller API 응답을 캡처하지 못했습니다: {url}")
+
+    body = captured[-1]
+    return body.get("data", {}).get("bestSeller", []) or []
+
 
 def load_top100_list(page):
-    """확인된 방식대로 ?page=1 ~ ?page=5 를 순서대로 열어 페이지당 20권씩,
-    총 최대 100권을 모읍니다. (debug_kyobo_network.py로 실제 확인된 방식:
-    href='?page=2' 클릭 시 실제로 21~40위가 로드됨을 확인함.)"""
+    """page=1 ~ page=5(per=20)를 순서대로 열어 페이지당 20권씩, 총 최대
+    100권을 모읍니다(page=1~5가 실제로 순위 1~20, ..., 81~100을 채워주는
+    것을 Playwright로 실제 확인함)."""
     books = []
-    seen_urls = set()
-    rank = 1
     pages_needed = -(-TARGET_COUNT // 20)  # TARGET_COUNT=100 -> 5페이지
 
     for page_num in range(1, pages_needed + 1):
         page_url = LIST_URL if page_num == 1 else f"{LIST_URL}?page={page_num}"
         print(f"{page_num}페이지 로딩 중... ({page_url})")
-        page.goto(page_url, timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=30000)
-        page.wait_for_timeout(2000)
+        try:
+            items = fetch_best_seller_page(page, page_url)
+        except Exception as e:
+            print(f"   진단: {page_num}페이지 조회 실패: {e}. 여기서 중단합니다.")
+            break
 
-        imgs = page.locator(IMG_SELECTOR)
-        count = imgs.count()
-        page_added = 0
-        for i in range(count):
-            if rank > TARGET_COUNT:
-                break
-            img = imgs.nth(i)
-            title = img.get_attribute("alt")
-            href = img.evaluate(GET_HREF_JS)
-            if not href or href in seen_urls or not title:
-                continue
-            seen_urls.add(href)
-            full_url = href if href.startswith("http") else "https://product.kyobobook.co.kr" + href
-            books.append({"rank": rank, "title": title.strip(), "url": full_url})
-            rank += 1
-            page_added += 1
+        page_books = [item_to_book(item) for item in items if item.get("prstRnkn")]
+        books.extend(page_books)
+        print(f"   -> {page_num}페이지에서 {len(page_books)}권 추가 (누적 {len(books)}권)")
 
-        print(f"   -> {page_num}페이지에서 {page_added}권 추가 (누적 {len(books)}권)")
-
-        if page_added == 0:
+        if not page_books:
             print(f"   진단: {page_num}페이지에서 새로 추가된 도서가 없습니다. 여기서 중단합니다.")
             break
 
@@ -147,59 +188,6 @@ def load_top100_list(page):
         print(f"진단: 목표({TARGET_COUNT}권)를 채우지 못했습니다. 우선 로드된 {len(books)}권만 진행합니다.")
 
     return books
-
-
-def _fetch_one_detail(page, book):
-    try:
-        detail = fetch_detail(page, book["url"])
-    except Exception as e:
-        print(f"   -> 상세 페이지 조회 실패, 이 도서는 제목/URL만 저장합니다: {e}")
-        detail = {"author": "", "publisher": "", "isbn13": None}
-
-    book["author"] = detail["author"]
-    book["publisher"] = detail["publisher"]
-    book["isbn13"] = detail["isbn13"]
-
-
-def enrich_with_details(books):
-    """상세 페이지 방문을 DETAIL_CONCURRENCY(기본 4)개씩 동시 처리합니다.
-    개별 도서 파싱 로직(_fetch_one_detail -> fetch_detail)은 기존과 동일합니다."""
-    return enrich_details_concurrently(
-        books,
-        fetch_one=_fetch_one_detail,
-        user_agent=USER_AGENT,
-        concurrency=DETAIL_CONCURRENCY,
-        request_delay=DETAIL_REQUEST_DELAY,
-    )
-
-
-def get_previous_ranks(client):
-    # rankings을 직접 조회합니다(예전에는 collection_runs에서 "가장 최근 run"을 먼저 찾았지만,
-    # 분야별(카테고리) 수집이 별도 run으로 추가되면서 "이 서점의 가장 최근 run"이 항상
-    # 종합 수집이라는 보장이 없어졌습니다. category="종합" 스냅샷만 정확히 찾기 위해
-    # rankings에서 바로 조회하도록 바꿨습니다. 종합 TOP100 결과 자체는 동일합니다.)
-    latest = (
-        client.table("rankings")
-        .select("collected_at")
-        .eq("bookstore", BOOKSTORE)
-        .eq("category", CATEGORY)
-        .order("collected_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    if not latest.data:
-        return {}
-
-    latest_collected_at = latest.data[0]["collected_at"]
-    prev_rankings = (
-        client.table("rankings")
-        .select("isbn13, rank")
-        .eq("bookstore", BOOKSTORE)
-        .eq("category", CATEGORY)
-        .eq("collected_at", latest_collected_at)
-        .execute()
-    )
-    return {row["isbn13"]: row["rank"] for row in prev_rankings.data if row["isbn13"]}
 
 
 def main():
@@ -210,10 +198,6 @@ def main():
         sys.exit(1)
 
     client = create_client(supabase_url, supabase_key)
-
-    print("직전 교보문고 수집 결과 조회 중 (순위 변동 계산용)...")
-    prev_ranks = get_previous_ranks(client)
-    print(f"직전 스냅샷 도서 수: {len(prev_ranks)}권\n")
 
     collected_at = datetime.now(timezone.utc).isoformat()
     error_message = None
@@ -230,29 +214,14 @@ def main():
                 )
 
             page = browser.new_page(user_agent=USER_AGENT)
-
             books = load_top100_list(page)
-            if not books:
-                raise RuntimeError("목록에서 도서를 하나도 추출하지 못했습니다.")
-
             browser.close()
 
-        print(
-            f"\n목록 수집 성공: {len(books)}권. "
-            f"상세 페이지를 동시성={DETAIL_CONCURRENCY}로 조회합니다.\n"
-        )
-        books = enrich_with_details(books)
+        if not books:
+            raise RuntimeError("목록에서 도서를 하나도 추출하지 못했습니다.")
     except Exception as e:
         error_message = str(e)
         print(f"\n교보문고 수집이 완전히 실패했습니다: {error_message}")
-
-    for book in books:
-        isbn13 = book.get("isbn13")
-        if isbn13 and isbn13 in prev_ranks:
-            book["rank_change"] = prev_ranks[isbn13] - book["rank"]
-        else:
-            book["rank_change"] = None
-        book["match_status"] = "matched" if isbn13 else "no_isbn"
 
     status = "success" if books else "failed"
 
