@@ -1,27 +1,25 @@
-"""[일회성 진단 스크립트] 교보문고 베스트셀러 페이지의 실제 구조를 확인합니다.
+"""[일회성 진단 스크립트 v2] 교보문고 베스트셀러 내부 API 및 목록 DOM 재확인.
 
-목적 (Supabase에는 전혀 쓰지 않는 읽기 전용 진단):
-1. "120개씩 보기" 같은 페이지 크기 옵션이 실제로 존재하는지, 있다면 클릭 시
-   어떤 URL/네트워크 요청이 발생하는지 캡처
-2. 목록 페이지의 도서 항목 DOM에 저자/출판사/ISBN13이 이미 포함돼 있는지 확인
-   (있다면 상세 페이지 방문 없이 목록만으로 충분할 수 있음)
-
-최적화 작업을 실제로 반영하기 전에, 추측이 아니라 실제 페이지를 열어서
-확인하기 위한 용도입니다. 확인이 끝나면 이 파일과 관련 워크플로 스텝은
-정리(삭제)할 예정입니다.
+1차 진단에서 목록 페이지가 실제로는
+https://store.kyobobook.co.kr/api/gw/best/best-seller/total?page=1&per=20&period=002&bsslBksClstCode=A
+라는 내부 JSON API를 호출해서 데이터를 그리는 것을 확인했습니다. 이번에는:
+1. 이 API를 per=20/100/120으로 직접 호출해서 실제로 더 많은 항목을 한 번에
+   받을 수 있는지, 응답 JSON에 author/publisher/isbn13이 이미 들어있는지 확인
+2. 목록 페이지 도서 항목 컨테이너 전체 HTML에서 pbcmCode(출판사 링크) /
+   eg:brandName(저자) 패턴이 존재하는지 확인 (상세페이지 스킵 가능 여부 판단용)
 """
 
+import json
 import re
 import sys
 
 from playwright.sync_api import sync_playwright
 
 LIST_URL = "https://store.kyobobook.co.kr/bestseller/total/weekly"
+API_URL = "https://store.kyobobook.co.kr/api/gw/best/best-seller/total"
 
 
 def main():
-    requests_seen = []
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(
@@ -31,93 +29,96 @@ def main():
             )
         )
 
-        def on_request(req):
-            if req.resource_type in ("xhr", "fetch", "document"):
-                requests_seen.append((req.method, req.url))
-
-        page.on("request", on_request)
-
-        print(f"[1] 목록 페이지 로딩: {LIST_URL}")
+        print("[0] 먼저 목록 페이지를 한 번 열어서 정상 세션/쿠키를 확보")
         page.goto(LIST_URL, timeout=30000)
         page.wait_for_load_state("networkidle", timeout=30000)
-        page.wait_for_timeout(1500)
 
-        print("\n[2] 페이지 로딩 중 발생한 document/xhr/fetch 요청들:")
-        for method, url in requests_seen:
-            print(f"   {method} {url}")
-
-        print("\n[3] '120개씩 보기' 등 페이지 크기 옵션 텍스트 검색")
-        candidates = page.get_by_text(re.compile(r"(\d+)\s*개씩"))
-        count = candidates.count()
-        print(f"   '~개씩' 패턴 매칭 요소 수: {count}")
-        for i in range(min(count, 10)):
-            el = candidates.nth(i)
+        for per in (20, 100, 120, 200):
+            print(f"\n[1] 내부 API 직접 호출: per={per}")
             try:
-                text = el.inner_text().strip()
-                tag = el.evaluate("e => e.tagName")
-                outer = el.evaluate("e => e.outerHTML")[:300]
-                print(f"   [{i}] tag={tag} text='{text}'")
-                print(f"        outerHTML(앞 300자)={outer}")
+                resp = page.request.get(
+                    API_URL,
+                    params={
+                        "page": "1",
+                        "per": str(per),
+                        "period": "002",
+                        "bsslBksClstCode": "A",
+                    },
+                )
+                print(f"   status={resp.status}")
+                if resp.ok:
+                    data = resp.json()
+                    # 실제 아이템 배열 위치를 찾기 위해 최상위 구조를 먼저 출력
+                    print(f"   최상위 키: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+                    text = json.dumps(data, ensure_ascii=False)
+                    print(f"   응답 전체 길이: {len(text)}자")
+                    # 흔히 쓰이는 위치 후보들을 시도
+                    items = None
+                    if isinstance(data, dict):
+                        d = data.get("data", data)
+                        if isinstance(d, dict):
+                            for key in ("bestSeller", "list", "items", "productList", "result"):
+                                if key in d:
+                                    items = d[key]
+                                    print(f"   아이템 배열 후보 키: data.{key}")
+                                    break
+                        elif isinstance(d, list):
+                            items = d
+                    if items is not None and isinstance(items, list):
+                        print(f"   아이템 개수: {len(items)}")
+                        if items:
+                            print(f"   첫 아이템 키: {list(items[0].keys())}")
+                            print(f"   첫 아이템 샘플: {json.dumps(items[0], ensure_ascii=False)[:800]}")
+                    else:
+                        print(f"   아이템 배열을 자동으로 못 찾음. 응답 앞 1500자: {text[:1500]}")
+                else:
+                    print(f"   응답 실패, 본문 앞 500자: {resp.text()[:500]}")
             except Exception as e:
-                print(f"   [{i}] 읽기 실패: {e}")
+                print(f"   요청 실패: {e}")
 
-        # select 태그(드롭다운) 자체도 별도로 확인
-        selects = page.locator("select")
-        scount = selects.count()
-        print(f"\n[3-1] 페이지 내 <select> 요소 수: {scount}")
-        for i in range(min(scount, 10)):
-            sel = selects.nth(i)
-            try:
-                outer = sel.evaluate("e => e.outerHTML")[:500]
-                print(f"   select[{i}] outerHTML(앞 500자)={outer}")
-            except Exception as e:
-                print(f"   select[{i}] 읽기 실패: {e}")
-
-        requests_seen.clear()
-        if count > 0:
-            print("\n[4] '~개씩' 옵션 클릭 시도")
-            try:
-                candidates.first.click(timeout=5000)
-                page.wait_for_timeout(3000)
-                print(f"   클릭 후 URL: {page.url}")
-                print("   클릭 후 발생한 document/xhr/fetch 요청들:")
-                for method, url in requests_seen:
-                    print(f"      {method} {url}")
-                # 클릭 후 목록에 실제로 몇 권이 렌더링됐는지도 확인
-                img_count = page.locator(
-                    "a[href*='product.kyobobook.co.kr/detail/'] img"
-                ).count()
-                print(f"   클릭 후 렌더링된 도서 이미지 수: {img_count}")
-            except Exception as e:
-                print(f"   클릭 실패/타임아웃: {e}")
-        else:
-            print("\n[4] 클릭할 '~개씩' 옵션을 찾지 못했습니다.")
-
-        print("\n[5] 도서 목록 항목 1개의 DOM 구조 확인 (저자/출판사/ISBN 존재 여부)")
+        print("\n[2] 목록 페이지 도서 항목 컨테이너에서 pbcmCode / eg:brandName 패턴 검색")
         img_selector = "a[href*='product.kyobobook.co.kr/detail/'] img"
         imgs = page.locator(img_selector)
         if imgs.count() > 0:
             first_img = imgs.first
-            # 이미지에서 몇 단계 상위 컨테이너까지의 텍스트/HTML을 살펴봄
             container_html = first_img.evaluate(
                 """
                 (img) => {
                     let el = img.closest('a');
-                    // a 태그 기준 조상 3단계까지 outerHTML을 반환
                     let node = el;
-                    for (let i = 0; i < 3 && node.parentElement; i++) {
+                    for (let i = 0; i < 4 && node.parentElement; i++) {
                         node = node.parentElement;
                     }
                     return node.outerHTML;
                 }
                 """
             )
-            print(f"   조상 3단계 컨테이너 outerHTML 길이: {len(container_html)}")
-            print(f"   앞 2000자:\n{container_html[:2000]}")
+            print(f"   컨테이너 HTML 전체 길이: {len(container_html)}")
+            has_pbcm = "pbcmCode=" in container_html
+            has_brand = "eg:brandName" in container_html
+            print(f"   'pbcmCode=' (출판사 링크 패턴) 포함 여부: {has_pbcm}")
+            print(f"   'eg:brandName' (저자 메타 패턴) 포함 여부: {has_brand}")
 
-            # 13자리 숫자(ISBN13 패턴) 존재 여부
-            isbn_matches = re.findall(r"\b\d{13}\b", container_html)
-            print(f"\n   컨테이너 내 13자리 숫자(ISBN13 패턴) 발견: {isbn_matches[:5]}")
+            # 실제 출판사/저자로 추정되는 텍스트 조각을 대략적으로 훑어보기 위해
+            # <a> 태그 전체를 나열
+            links = first_img.evaluate(
+                """
+                (img) => {
+                    let el = img.closest('a');
+                    let node = el;
+                    for (let i = 0; i < 4 && node.parentElement; i++) {
+                        node = node.parentElement;
+                    }
+                    return Array.from(node.querySelectorAll('a')).map(a => ({
+                        text: a.innerText.trim().slice(0, 40),
+                        href: a.getAttribute('href')
+                    }));
+                }
+                """
+            )
+            print(f"   컨테이너 내부 <a> 태그 수: {len(links)}")
+            for l in links[:30]:
+                print(f"      text='{l['text']}' href='{l['href']}'")
         else:
             print("   도서 이미지를 찾지 못했습니다.")
 
