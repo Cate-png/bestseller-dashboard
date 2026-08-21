@@ -10,6 +10,11 @@ import {
   getCommonBooks,
   getWindowTrend,
 } from "../lib/trends";
+import {
+  buildUniqueBooks,
+  extractTrendKeywords,
+  extractNotableFlows,
+} from "../lib/insights";
 
 const COLUMN_CLASS = {
   교보문고: "kyobo",
@@ -181,6 +186,19 @@ export default function Dashboard({
   const trend24h = useMemo(
     () => getWindowTrend(window24h || [], 10),
     [window24h]
+  );
+
+  const activeUniqueBooks = useMemo(
+    () => buildUniqueBooks(activeStoreData, bookstores),
+    [activeStoreData, bookstores]
+  );
+  const trendKeywords = useMemo(
+    () => extractTrendKeywords(activeUniqueBooks, 10),
+    [activeUniqueBooks]
+  );
+  const notableFlows = useMemo(
+    () => extractNotableFlows(activeUniqueBooks, 3),
+    [activeUniqueBooks]
   );
 
   return (
@@ -364,6 +382,38 @@ export default function Dashboard({
         </div>
       </div>
       )}
+
+      <div className="insight-section">
+        <h2>트렌드 키워드</h2>
+        {trendKeywords.length === 0 ? (
+          <p className="trend-empty">
+            아직 두드러진 키워드가 없습니다. (겹치는 표현이 2권 이상일 때
+            표시됩니다)
+          </p>
+        ) : (
+          <div className="keyword-list">
+            {trendKeywords.map(({ keyword, bookCount }) => (
+              <span className="keyword-chip" key={keyword}>
+                {keyword} <span className="keyword-count">{bookCount}권</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <h2 className="insight-subheading">주목할 흐름</h2>
+        {notableFlows.length === 0 ? (
+          <p className="trend-empty">아직 눈에 띄는 흐름이 없습니다.</p>
+        ) : (
+          <ul className="flow-list">
+            {notableFlows.map((flow, i) => (
+              <li key={i}>
+                {flow.description}
+                <span className="flow-count">{flow.bookCount}권</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
