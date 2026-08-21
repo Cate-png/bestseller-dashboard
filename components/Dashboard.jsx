@@ -123,6 +123,8 @@ function TrendCard({ title, children }) {
   );
 }
 
+const TOTAL_CATEGORY = "종합";
+
 export default function Dashboard({
   bookstores,
   storeData,
@@ -130,9 +132,32 @@ export default function Dashboard({
   collectedAt,
   window6h,
   window24h,
+  categories = [],
+  categoryData = {},
+  categoryErrors = {},
 }) {
   const [query, setQuery] = useState("");
   const [onlyWisdom, setOnlyWisdom] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(TOTAL_CATEGORY);
+
+  const tabs = useMemo(() => [TOTAL_CATEGORY, ...categories], [categories]);
+  const isTotal = selectedCategory === TOTAL_CATEGORY;
+
+  const activeStoreData = isTotal ? storeData : categoryData[selectedCategory] || {};
+  const activeErrors = isTotal ? errors : categoryErrors[selectedCategory] || {};
+
+  const activeCollectedAt = useMemo(() => {
+    if (isTotal) return collectedAt;
+    let latest = null;
+    for (const bookstore of bookstores) {
+      const rows = activeStoreData[bookstore] || [];
+      if (rows.length > 0) {
+        const t = rows[0].collected_at;
+        if (!latest || t > latest) latest = t;
+      }
+    }
+    return latest;
+  }, [isTotal, collectedAt, activeStoreData, bookstores]);
 
   const allRows = useMemo(() => {
     const merged = [];
@@ -162,7 +187,18 @@ export default function Dashboard({
     <div>
       <div className="header">
         <h1>베스트셀러 실시간 현황</h1>
-        <div className="meta">{formatDateTime(collectedAt)}</div>
+        <div className="meta">{formatDateTime(activeCollectedAt)}</div>
+        <div className="category-tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              className={`category-tab${selectedCategory === tab ? " active" : ""}`}
+              onClick={() => setSelectedCategory(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
         <div className="controls">
           <input
             type="text"
@@ -189,9 +225,9 @@ export default function Dashboard({
         </div>
       </div>
 
-      {Object.keys(errors).length > 0 && (
+      {Object.keys(activeErrors).length > 0 && (
         <div className="error-banner">
-          {Object.entries(errors)
+          {Object.entries(activeErrors)
             .map(([store, msg]) => `${store}: ${msg}`)
             .join("  ·  ")}
         </div>
@@ -202,14 +238,15 @@ export default function Dashboard({
           <BookColumn
             key={bookstore}
             bookstore={bookstore}
-            rows={storeData[bookstore] || []}
-            error={errors[bookstore]}
+            rows={activeStoreData[bookstore] || []}
+            error={activeErrors[bookstore]}
             query={query}
             onlyWisdom={onlyWisdom}
           />
         ))}
       </div>
 
+      {isTotal && (
       <div className="trend-section">
         <h2>트렌드 분석 (TOP100 전체 기준)</h2>
         <div className="trend-grid">
@@ -325,6 +362,7 @@ export default function Dashboard({
           </TrendCard>
         </div>
       </div>
+      )}
     </div>
   );
 }

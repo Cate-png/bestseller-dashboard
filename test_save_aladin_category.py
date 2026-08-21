@@ -1,0 +1,199 @@
+"""분야별(소설/에세이시/인문/경제경영/자기계발/역사) TOP10 베스트셀러 수집 -> Supabase 저장.
+
+기존 종합 TOP100 수집 스크립트(test_save_aladin.py)에서 실제로 검증된 목록/상세
+페이지 파싱 로직(parse_list, fetch_detail_page, parse_detail)을 그대로
+import해서 재사용합니다. test_save_aladin.py 자체는 전혀 수정하지 않고, 목록
+페이지 요청 시 CID 파라미터만 분야별로 바꿔서 호출합니다.
+
+분야별 CID는 categories.py에 정리되어 있습니다.
+
+기존 스크립트와의 차이:
+- 분야마다 TOP10까지만 수집합니다 (기존은 TOP100을 위해 2페이지를 조회했지만,
+  여기서는 1페이지 조회 결과에서 앞 10권만 사용합니다).
+- collection_runs는 "이번 분야별 수집 전체"를 대표하는 행 1개만 남기고,
+  rankings에는 분야별로 category 값을 다르게 저장합니다.
+- 분야 하나가 실패해도 나머지 분야 수집은 계속 진행합니다.
+
+필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY (기존과 동일, 추가 Secret 없음)
+"""
+
+import os
+import sys
+import time
+from datetime import datetime, timezone
+
+import requests
+
+try:
+    from supabase import create_client
+except ImportError:
+    print("오류: supabase 라이브러리가 설치되어 있지 않습니다. (pip install supabase)")
+    sys.exit(1)
+
+from categories import CATEGORIES, TOP_N, get_previous_category_ranks
+from test_save_aladin import HEADERS, parse_list, fetch_detail_page, parse_detail
+
+BOOKSTORE = "알라딘"
+LIST_URL = "https://www.aladin.co.kr/shop/common/wbest.aspx"
+DETAIL_REQUEST_DELAY = 2.0
+
+
+def fetch_category_list_page(cid: str) -> str:
+    params = {
+        "BestType": "Bestseller",
+        "BranchType": 1,  # 국내도서
+        "CID": cid,
+    }
+    resp = requests.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
+    resp.raise_for_status()
+    resp.encoding = resp.apparent_encoding
+    return resp.text
+
+
+def collect_top_n(cid: str, n: int):
+    html = fetch_category_list_page(cid)
+    books = parse_list(html, start_rank=1)
+    if not books:
+        raise RuntimeError("목록 페이지에서 도서를 하나도 추출하지 못했습니다.")
+    return books[:n]
+
+
+def enrich_with_details(books):
+    total = len(books)
+    for i, book in enumerate(books):
+        print(f"   [{book['rank']}/{total}] 상세 조회 중: {book['title']}")
+        try:
+            html = fetch_detail_page(book["url"])
+            detail = parse_detail(html)
+        except Exception as e:
+            print(f"      -> 상세 페이지 조회 실패, 제목/URL만 저장합니다: {e}")
+            detail = {"author": "", "publisher": "", "isbn13": ""}
+
+        book["author"] = detail["author"]
+        book["publisher"] = detail["publisher"]
+        book["isbn13"] = detail["isbn13"] or None
+
+        if i < total - 1:
+            time.sleep(DETAIL_REQUEST_DELAY)
+
+    return books
+
+
+def main():
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+    if not supabase_url or not supabase_key:
+        print("오류: SUPABASE_URL / SUPABASE_SERVICE_KEY 환경변수가 필요합니다.")
+        sys.exit(1)
+
+    client = create_client(supabase_url, supabase_key)
+    collected_at = datetime.now(timezone.utc).isoformat()
+
+    all_books = []
+    category_errors = {}
+
+    for cat in CATEGORIES:
+        category = cat["category"]
+        print(f"\n=== 알라딘 · {category} TOP{TOP_N} 수집 시작 (CID={cat['aladin_cid']}) ===")
+        try:
+            prev_ranks = get_previous_category_ranks(client, BOOKSTORE, category)
+            books = collect_top_n(cat["aladin_cid"], TOP_N)
+            books = enrich_with_details(books)
+
+            for book in books:
+                isbn13 = book.get("isbn13")
+                if isbn13 and isbn13 in prev_ranks:
+                    book["rank_change"] = prev_ranks[isbn13] - book["rank"]
+                else:
+                    book["rank_change"] = None
+                book["match_status"] = "matched" if isbn13 else "no_isbn"
+                book["category"] = category
+
+            all_books.extend(books)
+            print(f"   -> {category} {len(books)}권 수집 성공")
+        except Exception as e:
+            category_errors[category] = str(e)
+            print(f"   -> {category} 수집 실패: {e}")
+
+    status = "success" if all_books else "failed"
+    error_message = "; ".join(f"{c}: {m}" for c, m in category_errors.items()) or None
+
+    run_insert = (
+        client.table("collection_runs")
+        .insert({
+            "bookstore": BOOKSTORE,
+            "status": status,
+            "error_message": error_message,
+            "item_count": len(all_books),
+        })
+        .execute()
+    )
+    run_id = run_insert.data[0]["id"]
+    print(f"\ncollection_runs 기록 완료. run_id={run_id}, status={status}, 총 {len(all_books)}권")
+
+    if not all_books:
+        print("저장할 도서 데이터가 없어 books/rankings 저장은 건너뜁니다.")
+        sys.exit(1)
+
+    books_payload = []
+    seen_isbn = set()
+    for book in all_books:
+        isbn13 = book.get("isbn13")
+        if not isbn13 or isbn13 in seen_isbn:
+            continue
+        seen_isbn.add(isbn13)
+        books_payload.append({
+            "isbn13": isbn13,
+            "title": book["title"],
+            "author": book["author"],
+            "publisher": book["publisher"],
+            "updated_at": collected_at,
+        })
+
+    books_saved = 0
+    if books_payload:
+        result = (
+            client.table("books")
+            .upsert(books_payload, on_conflict="isbn13")
+            .execute()
+        )
+        books_saved = len(result.data)
+    print(f"books 테이블 upsert 완료: {books_saved}건")
+
+    rankings_payload = [
+        {
+            "run_id": run_id,
+            "collected_at": collected_at,
+            "bookstore": BOOKSTORE,
+            "category": book["category"],
+            "rank": book["rank"],
+            "title": book["title"],
+            "author": book["author"],
+            "publisher": book["publisher"],
+            "isbn13": book.get("isbn13"),
+            "url": book["url"],
+            "match_status": book["match_status"],
+            "rank_change": book["rank_change"],
+        }
+        for book in all_books
+    ]
+    rankings_result = client.table("rankings").insert(rankings_payload).execute()
+    print(f"rankings 테이블 저장 완료: {len(rankings_result.data)}건")
+
+    if category_errors:
+        print("\n일부 분야 수집 실패:")
+        for c, m in category_errors.items():
+            print(f"  - {c}: {m}")
+
+    print("\n" + "=" * 80)
+    print("분야별(알라딘) 수집 결과 요약")
+    print("=" * 80)
+    for cat in CATEGORIES:
+        cat_books = [b for b in all_books if b["category"] == cat["category"]]
+        print(f"[{cat['category']}] {len(cat_books)}권")
+        for b in sorted(cat_books, key=lambda x: x["rank"]):
+            print(f"   {b['rank']}위 | {b['title']} | {b['author']} | {b['publisher']}")
+
+
+if __name__ == "__main__":
+    main()

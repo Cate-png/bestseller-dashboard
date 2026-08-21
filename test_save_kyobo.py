@@ -156,23 +156,29 @@ def enrich_with_details(page, books):
 
 
 def get_previous_ranks(client):
-    prev_run = (
-        client.table("collection_runs")
-        .select("id")
+    # rankings을 직접 조회합니다(예전에는 collection_runs에서 "가장 최근 run"을 먼저 찾았지만,
+    # 분야별(카테고리) 수집이 별도 run으로 추가되면서 "이 서점의 가장 최근 run"이 항상
+    # 종합 수집이라는 보장이 없어졌습니다. category="종합" 스냅샷만 정확히 찾기 위해
+    # rankings에서 바로 조회하도록 바꿨습니다. 종합 TOP100 결과 자체는 동일합니다.)
+    latest = (
+        client.table("rankings")
+        .select("collected_at")
         .eq("bookstore", BOOKSTORE)
-        .eq("status", "success")
-        .order("run_at", desc=True)
+        .eq("category", CATEGORY)
+        .order("collected_at", desc=True)
         .limit(1)
         .execute()
     )
-    if not prev_run.data:
+    if not latest.data:
         return {}
 
-    prev_run_id = prev_run.data[0]["id"]
+    latest_collected_at = latest.data[0]["collected_at"]
     prev_rankings = (
         client.table("rankings")
         .select("isbn13, rank")
-        .eq("run_id", prev_run_id)
+        .eq("bookstore", BOOKSTORE)
+        .eq("category", CATEGORY)
+        .eq("collected_at", latest_collected_at)
         .execute()
     )
     return {row["isbn13"]: row["rank"] for row in prev_rankings.data if row["isbn13"]}

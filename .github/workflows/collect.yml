@@ -41,3 +41,30 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python test_save_aladin.py
+
+      # 아래 3개 스텝은 분야별(소설/에세이시/인문/경제경영/자기계발/역사) TOP10
+      # 수집을 추가한 것입니다. 위의 종합 TOP100 수집(Run Kyobo / Run Yes24 /
+      # Run Aladin)과는 완전히 별도의 스크립트/Supabase run으로 동작하며,
+      # continue-on-error를 둬서 한 서점의 분야별 수집이 실패해도 나머지
+      # 서점의 분야별 수집과 워크플로 전체 성공 여부에 영향을 주지 않습니다.
+      - name: Run Kyobo Categories
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_kyobo_category.py
+
+      - name: Run Yes24 Categories
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          YES24_API_KEY: "${{ secrets.YES24_API_KEY }}"
+        run: python test_save_yes24_category.py
+
+      - name: Run Aladin Categories
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_aladin_category.py

@@ -1,5 +1,6 @@
 import { getSupabaseServerClient } from "../lib/supabaseServer";
 import Dashboard from "../components/Dashboard";
+import { CATEGORIES } from "../lib/categories";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -7,26 +8,34 @@ export const revalidate = 0;
 const BOOKSTORES = ["교보문고", "예스24", "알라딘"];
 const CATEGORY = "종합";
 
-async function getLatestSuccessRun(client, bookstore) {
-  const { data, error } = await client
-    .from("collection_runs")
-    .select("id, run_at")
+// 특정 서점 + 분야의 "가장 최근 수집 스냅샷"을 가져옵니다.
+// (예전에는 collection_runs에서 "이 서점의 가장 최근 성공한 run"을 먼저 찾은 뒤
+// 그 run의 rankings를 전부 가져왔습니다. 분야별(카테고리) 수집이 추가되면서
+// "이 서점의 가장 최근 run"이 항상 종합 수집이라는 보장이 없어졌기 때문에,
+// rankings에서 bookstore+category로 직접 가장 최근 스냅샷을 찾도록 바꿨습니다.
+// category="종합"으로 호출하면 기존 종합 TOP100 조회와 동일하게 동작합니다.)
+async function getLatestCategoryRankings(client, bookstore, category) {
+  const latest = await client
+    .from("rankings")
+    .select("collected_at")
     .eq("bookstore", bookstore)
-    .eq("status", "success")
-    .order("run_at", { ascending: false })
+    .eq("category", category)
+    .order("collected_at", { ascending: false })
     .limit(1);
 
-  if (error) throw error;
-  return data && data.length > 0 ? data[0] : null;
-}
+  if (latest.error) throw latest.error;
+  if (!latest.data || latest.data.length === 0) return [];
 
-async function getRankingsForRun(client, runId) {
+  const collectedAt = latest.data[0].collected_at;
+
   const { data, error } = await client
     .from("rankings")
     .select(
       "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore"
     )
-    .eq("run_id", runId)
+    .eq("bookstore", bookstore)
+    .eq("category", category)
+    .eq("collected_at", collectedAt)
     .order("rank", { ascending: true });
 
   if (error) throw error;
@@ -65,15 +74,11 @@ export default async function Page() {
 
   for (const bookstore of BOOKSTORES) {
     try {
-      const run = await getLatestSuccessRun(client, bookstore);
-      if (!run) {
-        storeData[bookstore] = [];
-        errors[bookstore] = "아직 성공한 수집 기록이 없습니다.";
-        continue;
-      }
-      const rankings = await getRankingsForRun(client, run.id);
+      const rankings = await getLatestCategoryRankings(client, bookstore, CATEGORY);
       storeData[bookstore] = rankings;
-      if (rankings.length > 0) {
+      if (rankings.length === 0) {
+        errors[bookstore] = "아직 성공한 수집 기록이 없습니다.";
+      } else {
         const t = rankings[0].collected_at;
         if (!latestCollectedAt || t > latestCollectedAt) {
           latestCollectedAt = t;
@@ -85,7 +90,33 @@ export default async function Page() {
     }
   }
 
-  // 트렌드 분석용: 최근 6시간 / 24시간 구간 원본 데이터 (여러 run_id에 걸쳐 있음)
+  // 분야별 TOP10: 종합과는 완전히 별개로, 6개 분야 x 3개 서점 데이터를
+  // 페이지 렌더링 시점에 함께 조회해둡니다 (분야 전환은 클라이언트에서
+  // 순수 상태 전환만 하면 되도록).
+  const categoryData = {};
+  const categoryErrors = {};
+  await Promise.all(
+    CATEGORIES.map(async (category) => {
+      categoryData[category] = {};
+      categoryErrors[category] = {};
+      await Promise.all(
+        BOOKSTORES.map(async (bookstore) => {
+          try {
+            const rankings = await getLatestCategoryRankings(client, bookstore, category);
+            categoryData[category][bookstore] = rankings;
+            if (rankings.length === 0) {
+              categoryErrors[category][bookstore] = "아직 수집된 데이터가 없습니다.";
+            }
+          } catch (e) {
+            categoryData[category][bookstore] = [];
+            categoryErrors[category][bookstore] = String(e.message || e);
+          }
+        })
+      );
+    })
+  );
+
+  // 트렌드 분석용: 최근 6시간 / 24시간 구간 원본 데이터 (여러 run_id에 걸쳐 있음, 종합 기준)
   let window6h = [];
   let window24h = [];
   try {
@@ -104,6 +135,9 @@ export default async function Page() {
       collectedAt={latestCollectedAt}
       window6h={window6h}
       window24h={window24h}
+      categories={CATEGORIES}
+      categoryData={categoryData}
+      categoryErrors={categoryErrors}
     />
   );
 }

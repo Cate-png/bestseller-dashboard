@@ -28,6 +28,29 @@ body {
   color: #666;
 }
 
+.category-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.category-tab {
+  padding: 6px 14px;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+}
+
+.category-tab.active {
+  background: #2d4a3e;
+  color: #fff;
+  border-color: #2d4a3e;
+}
+
 .controls {
   display: flex;
   gap: 8px;
@@ -236,6 +259,15 @@ body {
 
   .header .meta {
     font-size: 12px;
+  }
+
+  .category-tabs {
+    gap: 6px;
+  }
+
+  .category-tab {
+    padding: 7px 12px;
+    font-size: 12.5px;
   }
 
   .controls {
