@@ -186,7 +186,7 @@ export default function Dashboard({
   return (
     <div className="page-shell">
       <div className="header">
-        <h1>베스트셀러 3사 현황</h1>
+        <h1>[위즈덤하우스] 베스트셀러 현황</h1>
         <div className="meta">{formatDateTime(activeCollectedAt)}</div>
         <div className="category-tabs">
           {tabs.map((tab) => (
