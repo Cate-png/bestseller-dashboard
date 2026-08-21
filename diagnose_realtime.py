@@ -209,6 +209,57 @@ def diagnose_yes24(page):
             f" / gd_name={gd_name.get_text(strip=True) if gd_name else '(없음)'}"
         )
 
+    # itemUnit(리스트) 안에 저자/출판사/ISBN이 직접 보이는지 확인하기 위해
+    # 첫 번째 itemUnit 전체(생략 없이)를 출력. 여기 없으면 상품 상세페이지를
+    # 따로 방문해야 한다는 뜻이므로, 상세페이지도 1건 방문해서 author/
+    # publisher/isbn13이 어떤 selector로 잡히는지 확인한다.
+    if units:
+        print("\n--- 첫 번째 itemUnit 전체 HTML (저자/출판사/ISBN 표기 확인용) ---")
+        print(str(units[0]))
+
+        first_link = units[0].select_one("a.gd_name") or units[0].select_one("a.lnk_img")
+        detail_href = first_link.get("href", "") if first_link else ""
+        if detail_href.startswith("/"):
+            detail_href = "https://www.yes24.com" + detail_href
+        if detail_href:
+            print(f"\n--- 상품 상세페이지 확인: {detail_href} ---")
+            try:
+                page.goto(detail_href, timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=30000)
+                page.wait_for_timeout(1500)
+                detail_html = page.content()
+                detail_soup = BeautifulSoup(detail_html, "html.parser")
+                print(f"상세페이지 타이틀: {detail_soup.title.get_text(strip=True) if detail_soup.title else '(없음)'}")
+
+                # ISBN은 보통 meta 태그나 표(table) 형태로 노출되는 경우가 많음
+                for meta in detail_soup.find_all("meta"):
+                    name = meta.get("property") or meta.get("name") or ""
+                    if "isbn" in name.lower() or "barcode" in name.lower():
+                        print(f"  meta[{name}] = {meta.get('content')}")
+
+                isbn_text_candidates = detail_soup.find_all(
+                    string=lambda s: s and "ISBN" in s
+                )
+                for s in isbn_text_candidates[:5]:
+                    parent = s.parent
+                    print(
+                        f"  'ISBN' 텍스트 포함 노드: <{parent.name} class="
+                        f"{parent.get('class')}> 주변 텍스트: "
+                        f"{parent.get_text(' ', strip=True)[:200]}"
+                    )
+
+                # 저자/출판사 링크 패턴 (자체 검색 링크로 보이는 것들)
+                for a in detail_soup.find_all("a", href=True)[:0]:
+                    pass
+                author_like = detail_soup.select("a.gd_pubArea, a[href*='author'], a[href*='Author']")
+                for a in author_like[:5]:
+                    print(f"  저자/작가 후보 링크: '{a.get_text(strip=True)}' ({a.get('href')})")
+                publisher_like = detail_soup.select("a[href*='publisher'], a[href*='Publisher']")
+                for a in publisher_like[:5]:
+                    print(f"  출판사 후보 링크: '{a.get_text(strip=True)}' ({a.get('href')})")
+            except Exception as e:
+                print(f"상세페이지 조회 실패: {e}")
+
 
 def diagnose_aladin(page):
     section("[알라딘] wbest.aspx?BranchType=1&BestType=NowBest (지금 베스트)")
