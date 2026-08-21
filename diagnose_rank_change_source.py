@@ -100,6 +100,41 @@ def diagnose_kyobo_weekly(page):
         else:
             print(f"  [키워드 없음] {url}")
 
+    # 키워드 매칭에만 의존하면 우리가 예상 못한 필드명(예: gap, diff, trend,
+    # move, status 등 'rank'라는 단어가 안 들어간 이름)을 놓칠 수 있음.
+    # 실제로 베스트셀러 목록을 채워주는 API로 보이는 응답(best-seller가
+    # url에 포함된 것)은 첫 2개 항목의 JSON을 전체 그대로 출력해서 눈으로
+    # 직접 모든 필드를 확인한다.
+    for url, body in captured:
+        if "best-seller" not in url:
+            continue
+        print(f"\n--- 베스트셀러 목록 API 원본 JSON 전체 확인: {url} ---")
+        items = None
+        if isinstance(body, dict):
+            for key in ("data", "list", "items", "result", "content"):
+                if key in body:
+                    candidate = body[key]
+                    if isinstance(candidate, list):
+                        items = candidate
+                        break
+                    if isinstance(candidate, dict):
+                        for inner_key in ("list", "items", "content"):
+                            if inner_key in candidate and isinstance(candidate[inner_key], list):
+                                items = candidate[inner_key]
+                                break
+                    if items:
+                        break
+        if items is None and isinstance(body, list):
+            items = body
+        if items is None:
+            print("  (도서 목록으로 보이는 배열을 자동으로 못 찾음 - 최상위 구조를 그대로 출력)")
+            print(f"  최상위 키: {list(body.keys()) if isinstance(body, dict) else type(body)}")
+            print(json.dumps(body, ensure_ascii=False, indent=2)[:3000])
+        else:
+            print(f"  도서 목록 항목 수: {len(items)}")
+            for item in items[:2]:
+                print(json.dumps(item, ensure_ascii=False, indent=2))
+
     print("\n--- HTML 원문에서 등락/이전순위 관련 키워드 직접 검색 ---")
     html_low = html.lower()
     for kw in RANK_KEYWORDS:
