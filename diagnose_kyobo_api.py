@@ -174,10 +174,68 @@ def diagnose_category_api(page, category_label, kyobo_domestic_code):
                             print(f"    첫 항목 샘플: {json.dumps(val[0], ensure_ascii=False)[:500]}")
 
 
+def diagnose_playwright_pagination():
+    """plain requests가 403(API Gateway 라이센스 키 없음)으로 막혔으므로,
+    기존에 검증된 방식대로 Playwright로 실제 페이지를 열고 그 안에서 발생하는
+    API 호출을 가로채는 방식으로 page=1..5 페이지네이션이 실제로 동작하는지,
+    그리고 frmrRnkn/cmdtCode가 TOP100 전체에서 어떤 값 범위를 갖는지 확인."""
+    section("[교보 API] Playwright로 page=1..5 실제 탐색 + TOP100 전체 필드 확인")
+
+    all_items = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(user_agent=USER_AGENT, locale="ko-KR", timezone_id="Asia/Seoul")
+
+        for page_num in range(1, 6):
+            captured = []
+
+            def on_response(response, bucket=captured):
+                try:
+                    url = response.url
+                    if "best-seller/total" not in url:
+                        return
+                    ctype = response.headers.get("content-type", "")
+                    if "json" not in ctype:
+                        return
+                    bucket.append((url, response.json()))
+                except Exception:
+                    pass
+
+            page.on("response", on_response)
+            url = f"https://store.kyobobook.co.kr/bestseller/total/weekly?page={page_num}"
+            try:
+                page.goto(url, timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=30000)
+                page.wait_for_timeout(1500)
+            except Exception as e:
+                print(f"  page={page_num}: 페이지 로딩 실패 {e}")
+                page.remove_listener("response", on_response)
+                continue
+            page.remove_listener("response", on_response)
+
+            if not captured:
+                print(f"  page={page_num}: API 응답을 캡처하지 못함")
+                continue
+            url, body = captured[-1]
+            items = body.get("data", {}).get("bestSeller", [])
+            ranks = [it.get("prstRnkn") for it in items]
+            print(
+                f"  page={page_num}: 캡처된 URL={url}"
+                f" -> {len(items)}건, prstRnkn {min(ranks) if ranks else '-'}~{max(ranks) if ranks else '-'}"
+            )
+            all_items.extend(items)
+
+        browser.close()
+
+    print()
+    summarize_items(all_items)
+
+
 def main():
     diagnose_requests_direct_call()
     diagnose_per100_single_call()
     diagnose_pagination_5x20()
+    diagnose_playwright_pagination()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
