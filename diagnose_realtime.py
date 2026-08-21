@@ -32,6 +32,12 @@ except ImportError:
 
 from bs4 import BeautifulSoup
 
+# 알라딘은 일시적인 403(CloudFront 차단)이 흔해서, 기존 검증된 재시도 로직
+# (test_save_aladin.py의 goto_with_retry)을 그대로 재사용한다. 이 스크립트는
+# 읽기 전용 진단이라 test_save_aladin.py 자체는 전혀 건드리지 않고 import만
+# 한다.
+from test_save_aladin import goto_with_retry, CONTEXT_KWARGS
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
@@ -165,16 +171,33 @@ def diagnose_yes24(page):
     for cls, count in class_counter.most_common(15):
         print(f"  {count:>4}건  {cls}")
 
+    # 1차 진단에서 'eBook19,800원' 같은 링크가 'Goods/' 링크 목록에 섞여
+    # 나온 것을 확인했음 -> 실시간 베스트에 eBook 개별 상품이 별도 순위
+    # item으로 섞여 들어온다는 뜻. div.itemUnit(순위 아이템 컨테이너로
+    # 추정) 단위로 실제 원본 HTML을 몇 개 통째로 찍어서, eBook과 종이책을
+    # 구분할 수 있는 마커(클래스명/뱃지 텍스트 등)를 직접 확인한다.
+    print(
+        "\n--- div.itemUnit 원본 HTML 앞부분 (종이책/eBook 구분 마커 확인용, 최대 6개) ---"
+    )
+    units = soup.select("div.itemUnit")
+    print(f"div.itemUnit 개수: {len(units)}")
+    for i, unit in enumerate(units[:6]):
+        snippet = str(unit)
+        if len(snippet) > 1200:
+            snippet = snippet[:1200] + " ...(생략)"
+        print(f"\n[itemUnit {i + 1}]\n{snippet}")
+
 
 def diagnose_aladin(page):
     section("[알라딘] wbest.aspx?BranchType=1&BestType=NowBest (지금 베스트)")
     url = "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=NowBest"
     try:
-        page.goto(url, timeout=30000)
-        page.wait_for_timeout(2000)
-        html = page.content()
+        # 1차 진단에서 bare page.goto() 1회 시도로 CloudFront 403을 받았는데,
+        # 기존 검증된 알라딘 스크래퍼는 원래도 일시적 403을 겪어서 재시도
+        # 로직(goto_with_retry)을 쓰고 있었음. 같은 재시도 로직으로 재확인.
+        html = goto_with_retry(page, url)
     except Exception as e:
-        print(f"페이지 로딩 실패: {e}")
+        print(f"페이지 로딩 실패(재시도 {3}회 모두 실패): {e}")
         return
 
     soup = BeautifulSoup(html, "html.parser")
@@ -200,7 +223,7 @@ def diagnose_aladin(page):
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(user_agent=USER_AGENT, locale="ko-KR", timezone_id="Asia/Seoul")
+        page = browser.new_page(user_agent=USER_AGENT, **CONTEXT_KWARGS)
 
         for name, fn in (
             ("교보문고", diagnose_kyobo),
