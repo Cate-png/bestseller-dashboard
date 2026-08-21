@@ -9,6 +9,11 @@ body {
   color: #1a1a1a;
 }
 
+.page-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
 .header {
   padding: 16px 24px;
   background: #ffffff;
