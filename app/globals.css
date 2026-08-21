@@ -224,3 +224,93 @@ body {
   color: #999;
   font-size: 12px;
 }
+/* 모바일 최적화 */
+@media (max-width: 768px) {
+  .header {
+    padding: 14px 16px;
+  }
+
+  .header h1 {
+    font-size: 18px;
+  }
+
+  .header .meta {
+    font-size: 12px;
+  }
+
+  .controls {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .controls input[type="text"] {
+    width: 100%;
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  .controls button {
+    width: 100%;
+    padding: 9px 12px;
+  }
+
+  .columns {
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 12px;
+  }
+
+  .column {
+    width: 100%;
+  }
+
+  .book-list {
+    max-height: none;
+  }
+
+  .book-row {
+    padding: 9px 10px;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .rank {
+    width: 24px;
+    padding-top: 2px;
+  }
+
+  .book-title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.4;
+    word-break: keep-all;
+  }
+
+  .book-sub {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.3;
+    margin-top: 2px;
+  }
+
+  .rank-change {
+    width: 38px;
+    padding-top: 2px;
+  }
+
+  .trend-section {
+    padding: 8px 12px 24px;
+  }
+
+  .trend-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trend-card {
+    padding: 12px;
+  }
+}
