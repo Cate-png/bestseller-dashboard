@@ -1,0 +1,127 @@
+name: Realtime Bestseller Collection
+
+# 실시간 베스트셀러(교보문고 "실시간 베스트셀러", 예스24 "실시간베스트",
+# 알라딘 "지금 베스트") 전용 워크플로입니다. 기존 collect.yml(매일 06시
+# KST, 주간/분야별 수집)과는 완전히 별개이며, 서로 다른 파일이라 이 파일이
+# 실패하거나 스케줄이 바뀌어도 collect.yml에는 전혀 영향이 없습니다.
+# 매시간 실행됩니다. 저장 대상도 realtime_rankings/realtime_collection_runs
+# 테이블로 완전히 분리되어 있어 주간 rankings 테이블과 섞이지 않습니다.
+#
+# 서점별로 job을 분리해 병렬 실행합니다(collect.yml과 동일한 구조).
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  kyobo-realtime:
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.run.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install supabase playwright
+          playwright install chromium
+
+      - name: Run Kyobo Realtime
+        id: run
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_kyobo_realtime.py
+
+  yes24-realtime:
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.run.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install supabase playwright beautifulsoup4
+          playwright install chromium
+
+      - name: Run Yes24 Realtime
+        id: run
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_yes24_realtime.py
+
+  aladin-realtime:
+    runs-on: ubuntu-latest
+    outputs:
+      outcome: ${{ steps.run.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install supabase playwright beautifulsoup4
+          playwright install chromium
+
+      - name: Run Aladin Realtime
+        id: run
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_aladin_realtime.py
+
+  check-overall:
+    needs: [kyobo-realtime, yes24-realtime, aladin-realtime]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check overall realtime collection result
+        run: |
+          declare -A results=(
+            ["Kyobo Realtime"]="${{ needs.kyobo-realtime.outputs.outcome }}"
+            ["Yes24 Realtime"]="${{ needs.yes24-realtime.outputs.outcome }}"
+            ["Aladin Realtime"]="${{ needs.aladin-realtime.outputs.outcome }}"
+          )
+
+          echo "=== 실시간 수집 서점별 결과 ==="
+          success_count=0
+          for name in "${!results[@]}"; do
+            outcome="${results[$name]}"
+            echo "  - ${name}: ${outcome:-(job 실패로 실행되지 않음)}"
+            if [ "$outcome" = "success" ]; then
+              success_count=$((success_count + 1))
+            fi
+          done
+
+          echo ""
+          echo "성공한 서점 수: ${success_count} / ${#results[@]}"
+
+          if [ "$success_count" -eq 0 ]; then
+            echo "::error::3개 서점 실시간 수집이 전부 실패했습니다. 워크플로를 실패로 표시합니다."
+            exit 1
+          fi
+
+          echo "최소 1개 이상의 서점 실시간 수집이 성공했습니다."
