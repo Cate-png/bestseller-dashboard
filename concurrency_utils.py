@@ -83,4 +83,27 @@ def enrich_details_concurrently(
         for f in as_completed(futures):
             f.result()
 
+    _clear_stale_duplicate_isbns(books)
     return books
+
+
+def _clear_stale_duplicate_isbns(books):
+    """한 워커가 같은 page를 재사용해 여러 상세 페이지를 순차 방문하는 도중,
+    페이지 탐색이 완전히 끝나기 전에 page.content()를 읽어버리면 직전 도서의
+    상세 정보(작가/출판사/ISBN13)가 그대로 다음 도서에 붙는 경우가 실제로
+    관측됐습니다(서로 다른 두 도서가 완전히 동일한 ISBN13/작가/출판사를
+    갖게 됨). 같은 ISBN13인데 제목이 다르면 뒤에 처리된 쪽을 신뢰할 수 없는
+    것으로 보고, 그 도서만 상세 정보를 비워서 다음 저장 단계에서 다른 도서의
+    정보로 잘못 저장(또는 잘못된 rank_change 계산)되지 않게 합니다."""
+    seen_title_by_isbn = {}
+    for book in books:
+        isbn13 = book.get("isbn13")
+        if not isbn13:
+            continue
+        title = book.get("title")
+        if isbn13 not in seen_title_by_isbn:
+            seen_title_by_isbn[isbn13] = title
+        elif seen_title_by_isbn[isbn13] != title:
+            book["isbn13"] = None
+            book["author"] = ""
+            book["publisher"] = ""
