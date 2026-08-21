@@ -1,6 +1,9 @@
 import { getSupabaseServerClient } from "../lib/supabaseServer";
 import Dashboard from "../components/Dashboard";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const BOOKSTORES = ["교보문고", "예스24", "알라딘"];
 const CATEGORY = "종합";
 
