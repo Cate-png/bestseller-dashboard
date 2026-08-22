@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isWisdomHouse } from "../lib/wisdomhouse";
 import {
   getRisingBooks,
@@ -323,18 +323,19 @@ export default function Dashboard({
 
   // 날짜 입력값이 바뀌거나(오늘로 되돌리는 경우 포함) 탭/분야가 바뀔
   // 때마다 자동으로 다시 조회합니다. 별도의 "조회" 버튼은 없습니다. 단,
-  // 종합 탭 + "오늘"인 경우는 app/page.js가 서버 렌더링 시점에 이미 최신
-  // 종합 데이터(storeData prop)를 내려줬으므로 /api/history를 또 호출하지
-  // 않고 exitHistoryMode()로 historyStoreData를 비워 서버 props를 그대로
-  // 쓰게 합니다(activeStoreData의 기본 분기) - 페이지를 열 때마다 같은
-  // 데이터를 서버·클라이언트에서 두 번 조회하던 중복을 없앤 것입니다.
-  // 분야 탭(종합/실시간이 아닌 탭)이면서 "오늘"을 보는 중이라면
-  // categoryTodayCache를 확인해서, 이미 조회한 적 있는 분야는 네트워크
-  // 요청 없이 캐시된 값을 그대로 씁니다. 실시간 탭과 과거 날짜 조회는
-  // 기존과 동일하게 항상 다시 조회합니다.
+  // (종합 탭 또는 실시간 탭) + "오늘"인 경우는 app/page.js가 서버 렌더링
+  // 시점에 이미 최신 데이터(storeData/realtimeData prop)를 내려줬으므로
+  // /api/history를 또 호출하지 않고 exitHistoryMode()로 historyStoreData를
+  // 비워 서버 props를 그대로 쓰게 합니다(activeStoreData의 기본 분기) -
+  // 페이지를 열 때마다 같은 데이터를 서버·클라이언트에서 두 번 조회하던
+  // 중복을 없앤 것입니다. 분야 탭(종합/실시간이 아닌 탭)이면서 "오늘"을
+  // 보는 중이라면 categoryTodayCache를 확인해서, 이미 조회했거나(직접
+  // 클릭) 백그라운드 프리페치로 이미 받아둔 분야는 네트워크 요청 없이
+  // 캐시된 값을 그대로 씁니다. 과거 날짜 조회는 기존과 동일하게 항상
+  // 다시 조회합니다.
   useEffect(() => {
     if (!currentDateValue) return; // 마운트 직후 아직 오늘 날짜가 안 채워진 순간
-    if (isTotal && !isPastSelection) {
+    if ((isTotal || isRealtime) && !isPastSelection) {
       exitHistoryMode();
       return;
     }
@@ -351,6 +352,59 @@ export default function Dashboard({
     fetchHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDateValue, isTotal, isRealtime, selectedCategory, isPastSelection]);
+
+  // 페이지 초기 렌더링(종합 탭 표시)이 끝난 뒤, 화면을 막지 않는 상태로
+  // 14개 분야의 "오늘" 데이터를 백그라운드에서 미리 받아 categoryTodayCache를
+  // 채워둡니다. 사용자가 실제로 분야 탭을 클릭할 때는 (이미 프리페치가
+  // 끝났다면) 네트워크 요청 없이 즉시 표시됩니다. 초기 로딩과 완전히
+  // 분리된 별도의 useEffect라 마운트 직후 백그라운드에서 조용히
+  // 시작되며, 종합/실시간 탭이 화면에 뜨는 시점을 전혀 지연시키지
+  // 않습니다. historyDate가 "오늘"로 채워지는 순간 딱 한 번만 실행되도록
+  // ref로 막아뒀습니다 - 이후 사용자가 날짜를 바꾸거나 탭을 오가도 다시
+  // 실행되지 않습니다(재실행돼도 결과가 달라지진 않지만, 매번 14개 요청을
+  // 다시 보내는 건 낭비이므로). 이미 캐시된 분야(사용자가 먼저 클릭해
+  // 조회된 경우)는 건너뛰고, 실패한 분야는 조용히 무시합니다(사용자가
+  // 나중에 그 탭을 클릭하면 기존처럼 그 시점에 다시 시도합니다).
+  const categoryPrefetchStartedRef = useRef(false);
+  useEffect(() => {
+    if (!historyDate || categoryPrefetchStartedRef.current || categories.length === 0) {
+      return;
+    }
+    categoryPrefetchStartedRef.current = true;
+    let cancelled = false;
+    const at = endOfDayISO(historyDate);
+
+    Promise.all(
+      categories.map(async (category) => {
+        if (categoryTodayCache[category]) return; // 이미 캐시됨(직접 클릭 등)
+        try {
+          const params = new URLSearchParams({ scope: "category", category, at });
+          const res = await fetch(`/api/history?${params.toString()}`);
+          const json = await res.json();
+          if (cancelled || !res.ok) return;
+          setCategoryTodayCache((prev) =>
+            prev[category]
+              ? prev
+              : {
+                  ...prev,
+                  [category]: {
+                    storeData: json.storeData || {},
+                    errors: json.errors || {},
+                    resolvedAt: json.resolvedAt || {},
+                  },
+                }
+          );
+        } catch (e) {
+          // 백그라운드 프리페치 실패는 조용히 무시합니다.
+        }
+      })
+    );
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyDate, categories]);
 
   async function fetchHistory() {
     const params = new URLSearchParams();
