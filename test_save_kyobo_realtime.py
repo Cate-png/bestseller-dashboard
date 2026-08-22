@@ -68,11 +68,35 @@ LIST_URL = "https://store.kyobobook.co.kr/bestseller/realtime"
 TARGET_COUNT = 100  # diagnose_kyobo_realtime_api.py로 확인된 total=100, page=1~5로 전체 커버
 
 
+# 도서로 인정하는 saleCmdtDvsnCode 값. diagnose_kyobo_nonbook_fields.py로
+# GitHub Actions에서 실제 확인한 근거:
+# - 실시간 TOP100 정상 도서(물리책) 98/100건이 saleCmdtDvsnCode='KOR',
+#   나머지 2건은 'EBK'(전자책)였고 둘 다 saleCmdtClstName이 실제 도서
+#   장르명(또는 그에 준하는 값)이었음.
+# - 실제로 TOP100에 섞여 들어온 것으로 확인된 비도서 굿즈("The Scent of
+#   Page : 차량용 방향제(개선판)")를 교보 검색 결과 HTML을 통해 상세페이지로
+#   찾아가 확인한 saleCmdtDvsnCode 값은 'PBC'로, KOR/EBK와 명확히 다름
+#   (saleCmdtGrpDvsnCode는 도서와 동일하게 'SGK'라서 구분 기준으로 쓸 수
+#   없었음). 같이 확인된 "GOGO [정규 3집]"(음반)은 상품 상세 URL 도메인
+#   자체가 product.kyobobook.co.kr가 아니라 hottracks.kyobobook.co.kr로
+#   완전히 별개 시스템이었음 - 도서와 saleCmdtDvsnCode가 같을 이유가 없음.
+BOOK_SALE_CMDT_DVSN_CODES = {"KOR", "EBK"}
+
+
 def load_realtime_list(page):
     """page=1~5(per=20)를 순서대로 열어 실시간 TOP100 전체를 모읍니다
     (diagnose_kyobo_realtime_api.py로 page당 서로 다른 20건씩 반환되는 것을
-    실제 확인함 - 주간 load_top100_list와 동일한 페이지네이션 구조)."""
+    실제 확인함 - 주간 load_top100_list와 동일한 페이지네이션 구조).
+
+    saleCmdtDvsnCode가 KOR/EBK가 아닌 항목(디퓨저/방향제/음반 등 비도서
+    굿즈)은 제외합니다. diagnose_kyobo_realtime_api.py로 page=6/7이 빈
+    응답임을 이미 확인했으므로(사이트 자체가 TOP100 너머의 순위 데이터를
+    제공하지 않음), 제외된 만큼 다음 순위로 백필할 방법이 없습니다 - 그래서
+    최종 저장 건수가 100건보다 적어질 수 있습니다. prstRnkn(원래 순위)은
+    재넘버링하지 않고 그대로 유지합니다(예: 45위가 비도서로 제외되면 46위는
+    그대로 46위)."""
     books = []
+    excluded_count = 0
     pages_needed = -(-TARGET_COUNT // 20)  # TARGET_COUNT=100 -> 5페이지
 
     for page_num in range(1, pages_needed + 1):
@@ -84,19 +108,34 @@ def load_realtime_list(page):
             print(f"   진단: {page_num}페이지 조회 실패: {e}. 여기서 중단합니다.")
             break
 
-        page_books = [item_to_book(item) for item in items if item.get("prstRnkn")]
+        page_books = []
+        for item in items:
+            if not item.get("prstRnkn"):
+                continue
+            if item.get("saleCmdtDvsnCode") not in BOOK_SALE_CMDT_DVSN_CODES:
+                excluded_count += 1
+                print(
+                    f"   -> 비도서로 판단해 제외: {item.get('prstRnkn')}위 "
+                    f"'{item.get('cmdtName')}' (saleCmdtDvsnCode="
+                    f"{item.get('saleCmdtDvsnCode')!r})"
+                )
+                continue
+            page_books.append(item_to_book(item))
+
         books.extend(page_books)
         print(f"   -> {page_num}페이지에서 {len(page_books)}권 추가 (누적 {len(books)}권)")
 
-        if not page_books:
-            print(f"   진단: {page_num}페이지에서 새로 추가된 도서가 없습니다. 여기서 중단합니다.")
+        if not page_books and not items:
+            print(f"   진단: {page_num}페이지에서 항목을 하나도 받지 못했습니다. 여기서 중단합니다.")
             break
 
+    if excluded_count:
+        print(f"\n비도서로 판단해 제외한 항목 {excluded_count}건 (백필 불가 - page=6/7이 빈 응답임을 사전 확인함).")
     if len(books) < TARGET_COUNT:
-        print(f"진단: 목표({TARGET_COUNT}권)를 채우지 못했습니다. 우선 로드된 {len(books)}권만 진행합니다.")
+        print(f"진단: 목표({TARGET_COUNT}권)를 채우지 못했습니다({len(books)}권). 비도서 제외 및/또는 페이지 조회 실패가 원인일 수 있습니다.")
 
     books.sort(key=lambda b: b["rank"])
-    return books[:TARGET_COUNT]
+    return books
 
 
 def main():
