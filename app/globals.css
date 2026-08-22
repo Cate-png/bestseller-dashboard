@@ -249,6 +249,12 @@ body {
   padding: 12px 16px;
 }
 
+/* 서점별 3열(.realtime-store-columns)을 담는 카드는 한 줄 전체 너비를
+   쓰도록 trend-grid의 auto-fit 컬럼폭 제한에서 벗어나게 합니다. */
+.trend-card-wide {
+  grid-column: 1 / -1;
+}
+
 .trend-card h3 {
   font-size: 14px;
   margin: 0 0 8px 0;

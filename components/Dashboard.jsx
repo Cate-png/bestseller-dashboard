@@ -37,6 +37,17 @@ function formatDateTime(iso) {
   )}:${pad(d.getMinutes())} 기준`;
 }
 
+// lib/trends.js가 이미 계산해 둔 결과(rising/falling/newEntries/trend6h/
+// trend24h)를 bookstore 필드로만 나누는 순수 표시용 그룹화입니다. 새로운
+// 집계/계산은 하지 않고, 각 서점 목록 안의 항목·순서·값은 그대로 유지합니다.
+function groupRowsByStore(rows, bookstores) {
+  const byStore = {};
+  for (const bookstore of bookstores) {
+    byStore[bookstore] = rows.filter((r) => r.bookstore === bookstore);
+  }
+  return byStore;
+}
+
 function matchesSearch(row, query) {
   if (!query) return true;
   const q = query.toLowerCase();
@@ -142,9 +153,9 @@ function BookColumn({ bookstore, rows, error, query, onlyWisdom, highlightSurge 
   );
 }
 
-function TrendCard({ title, children }) {
+function TrendCard({ title, children, className = "" }) {
   return (
-    <div className="trend-card">
+    <div className={`trend-card${className ? ` ${className}` : ""}`}>
       <h3>{title}</h3>
       {children}
     </div>
@@ -224,6 +235,31 @@ export default function Dashboard({
   const trend24h = useMemo(
     () => getWindowTrend(window24h || [], 10),
     [window24h]
+  );
+
+  // 종합 탭 하단 트렌드 카드를 실시간 탭과 동일한 서점별 3열 구조로 보여주기
+  // 위한 표시 전용 그룹화. rising/falling/newEntries/trend6h/trend24h 자체의
+  // 계산(lib/trends.js)은 그대로이고, 이미 계산된 결과를 bookstore로 나누기만
+  // 합니다.
+  const risingByStore = useMemo(
+    () => groupRowsByStore(rising, bookstores),
+    [rising, bookstores]
+  );
+  const fallingByStore = useMemo(
+    () => groupRowsByStore(falling, bookstores),
+    [falling, bookstores]
+  );
+  const newEntriesByStore = useMemo(
+    () => groupRowsByStore(newEntries, bookstores),
+    [newEntries, bookstores]
+  );
+  const trend6hByStore = useMemo(
+    () => groupRowsByStore(trend6h, bookstores),
+    [trend6h, bookstores]
+  );
+  const trend24hByStore = useMemo(
+    () => groupRowsByStore(trend24h, bookstores),
+    [trend24h, bookstores]
   );
 
   const activeUniqueBooks = useMemo(
@@ -357,46 +393,90 @@ export default function Dashboard({
       <div className="trend-section">
         <h2>트렌드 분석 (TOP100 전체 기준)</h2>
         <div className="trend-grid">
-          <TrendCard title="급상승 도서 (직전 수집 대비)">
+          <TrendCard title="급상승 도서 (직전 수집 대비)" className="trend-card-wide">
             {rising.length === 0 ? (
               <p className="trend-empty">데이터가 부족합니다.</p>
             ) : (
-              <ul>
-                {rising.map((r) => (
-                  <li key={`${r.bookstore}-${r.isbn13}-rise`}>
-                    [{r.bookstore}] {r.title} (↑{r.rank_change}, {r.rank}위)
-                  </li>
+              <div className="realtime-store-columns">
+                {bookstores.map((bookstore) => (
+                  <div className="realtime-store-column" key={bookstore}>
+                    <div
+                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
+                    >
+                      {bookstore}
+                    </div>
+                    {(risingByStore[bookstore] || []).length === 0 ? (
+                      <p className="trend-empty">데이터가 부족합니다.</p>
+                    ) : (
+                      <ul>
+                        {risingByStore[bookstore].map((r) => (
+                          <li key={`${r.bookstore}-${r.isbn13}-rise`}>
+                            {r.title} (↑{r.rank_change}, {r.rank}위)
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </TrendCard>
 
-          <TrendCard title="급락 도서 (직전 수집 대비)">
+          <TrendCard title="급락 도서 (직전 수집 대비)" className="trend-card-wide">
             {falling.length === 0 ? (
               <p className="trend-empty">데이터가 부족합니다.</p>
             ) : (
-              <ul>
-                {falling.map((r) => (
-                  <li key={`${r.bookstore}-${r.isbn13}-fall`}>
-                    [{r.bookstore}] {r.title} (↓{Math.abs(r.rank_change)}, {r.rank}
-                    위)
-                  </li>
+              <div className="realtime-store-columns">
+                {bookstores.map((bookstore) => (
+                  <div className="realtime-store-column" key={bookstore}>
+                    <div
+                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
+                    >
+                      {bookstore}
+                    </div>
+                    {(fallingByStore[bookstore] || []).length === 0 ? (
+                      <p className="trend-empty">데이터가 부족합니다.</p>
+                    ) : (
+                      <ul>
+                        {fallingByStore[bookstore].map((r) => (
+                          <li key={`${r.bookstore}-${r.isbn13}-fall`}>
+                            {r.title} (↓{Math.abs(r.rank_change)}, {r.rank}위)
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </TrendCard>
 
-          <TrendCard title="신규 진입 도서">
+          <TrendCard title="신규 진입 도서" className="trend-card-wide">
             {newEntries.length === 0 ? (
               <p className="trend-empty">데이터가 부족합니다.</p>
             ) : (
-              <ul>
-                {newEntries.map((r) => (
-                  <li key={`${r.bookstore}-${r.isbn13}-new`}>
-                    [{r.bookstore}] {r.title} ({r.rank}위)
-                  </li>
+              <div className="realtime-store-columns">
+                {bookstores.map((bookstore) => (
+                  <div className="realtime-store-column" key={bookstore}>
+                    <div
+                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
+                    >
+                      {bookstore}
+                    </div>
+                    {(newEntriesByStore[bookstore] || []).length === 0 ? (
+                      <p className="trend-empty">데이터가 부족합니다.</p>
+                    ) : (
+                      <ul>
+                        {newEntriesByStore[bookstore].map((r) => (
+                          <li key={`${r.bookstore}-${r.isbn13}-new`}>
+                            {r.title} ({r.rank}위)
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </TrendCard>
 
@@ -432,39 +512,69 @@ export default function Dashboard({
             )}
           </TrendCard>
 
-          <TrendCard title="최근 6시간 순위 변화">
+          <TrendCard title="최근 6시간 순위 변화" className="trend-card-wide">
             {trend6h.length === 0 ? (
               <p className="trend-empty">
                 아직 6시간 범위의 비교 데이터가 충분하지 않습니다. (수집이 반복될수록
                 채워집니다)
               </p>
             ) : (
-              <ul>
-                {trend6h.map((r, i) => (
-                  <li key={i}>
-                    [{r.bookstore}] {r.title} ({r.fromRank}위 → {r.toRank}위,{" "}
-                    {r.change > 0 ? `↑${r.change}` : `↓${Math.abs(r.change)}`})
-                  </li>
+              <div className="realtime-store-columns">
+                {bookstores.map((bookstore) => (
+                  <div className="realtime-store-column" key={bookstore}>
+                    <div
+                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
+                    >
+                      {bookstore}
+                    </div>
+                    {(trend6hByStore[bookstore] || []).length === 0 ? (
+                      <p className="trend-empty">데이터가 부족합니다.</p>
+                    ) : (
+                      <ul>
+                        {trend6hByStore[bookstore].map((r, i) => (
+                          <li key={i}>
+                            {r.title} ({r.fromRank}위 → {r.toRank}위,{" "}
+                            {r.change > 0 ? `↑${r.change}` : `↓${Math.abs(r.change)}`})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </TrendCard>
 
-          <TrendCard title="최근 24시간 순위 변화">
+          <TrendCard title="최근 24시간 순위 변화" className="trend-card-wide">
             {trend24h.length === 0 ? (
               <p className="trend-empty">
                 아직 24시간 범위의 비교 데이터가 충분하지 않습니다. (수집이 반복될수록
                 채워집니다)
               </p>
             ) : (
-              <ul>
-                {trend24h.map((r, i) => (
-                  <li key={i}>
-                    [{r.bookstore}] {r.title} ({r.fromRank}위 → {r.toRank}위,{" "}
-                    {r.change > 0 ? `↑${r.change}` : `↓${Math.abs(r.change)}`})
-                  </li>
+              <div className="realtime-store-columns">
+                {bookstores.map((bookstore) => (
+                  <div className="realtime-store-column" key={bookstore}>
+                    <div
+                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
+                    >
+                      {bookstore}
+                    </div>
+                    {(trend24hByStore[bookstore] || []).length === 0 ? (
+                      <p className="trend-empty">데이터가 부족합니다.</p>
+                    ) : (
+                      <ul>
+                        {trend24hByStore[bookstore].map((r, i) => (
+                          <li key={i}>
+                            {r.title} ({r.fromRank}위 → {r.toRank}위,{" "}
+                            {r.change > 0 ? `↑${r.change}` : `↓${Math.abs(r.change)}`})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </TrendCard>
         </div>

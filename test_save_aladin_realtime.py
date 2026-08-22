@@ -24,13 +24,28 @@ diagnose_aladin_realtime_pagination.py로 추가 확인한 내용(page=1만 수�
 탓에 최종 저장 건수가 46건에 그쳤던 원인 조사):
 - 종합 주간 수집기(test_save_aladin.py)와 동일한 page=2&cnt=1000&SortOrder=1
   파라미터를 NowBest에도 그대로 적용하면 51위 이후 49건이 추가로 잡힙니다
-  (1페이지 50건 + 2페이지 49건 = 99건).
-- page=3 이상은 실제로 0건(빈 응답)입니다 - 알라딘 "지금 베스트"는 100건이
-  아니라 최대 99건까지만 존재합니다. 그래서 아래 collect_nowbest()는 1・2
-  페이지를 모두 가져오도록 수정했고(TARGET_COUNT도 50 -> 100으로 올렸지만
-  실제로는 원본 데이터 자체가 99건이 상한), 도서가 아닌 항목(문구류/
-  오디오북)을 걸러낸 뒤 남는 건수만 최종 realtime_rankings에 저장됩니다
-  (정확한 최종 건수는 매 실행 시점의 실제 목록 구성에 따라 달라짐).
+  (1페이지 50건 + 2페이지 49건 = 99건). page=3 이상은 그 시점 기준 0건(빈
+  응답)이었습니다.
+
+유효 도서 100개 확보 로직(2번째 개선, 46건 -> 93건 다음 단계):
+- 기존에는 "목록(최대 2페이지) 전체 수집 -> 상세페이지 전부 조회 -> 비도서/
+  오디오북 필터링" 순서라서, 필터링 후 유효 도서가 100개에 못 미쳐도 추가
+  페이지를 요청할 방법이 없었습니다(이미 목록 수집이 끝난 뒤였으므로).
+- collect_valid_books()는 이 순서를 "페이지 1건 조회 -> 그 페이지만 상세
+  조회 -> 필터링 -> 유효 도서 수 확인 -> 부족하면 다음 페이지" 순서로
+  바꿔서, 유효 도서가 100개가 될 때까지, 또는 알라딘 원본 목록이 빈 페이지를
+  반환할 때까지(원본 데이터 소진) 페이지를 계속 요청합니다. page=3 이상이
+  실제로 몇 건을 주는지는 이 스크립트를 실행할 때마다 알라딘 사이트 상태에
+  따라 달라질 수 있어 고정 페이지 수로 미리 자르지 않습니다.
+- 원본 알라딘 순위(rank)는 parse_list()가 각 페이지의 start_rank(누적
+  raw 건수 + 1)를 기준으로 매긴 값을 그대로 사용하고, 필터링 이후 다시
+  1부터 번호를 매기지 않습니다(예: 1페이지에서 3건이 제외돼도 유효 도서의
+  rank는 4, 5, 6이 아니라 원본 그대로인 4, 6, 7 등일 수 있음).
+- 다만 알라딘 "지금 베스트" 자체가 페이지를 아무리 넘겨도 100건을
+  제공하지 않을 수 있고(실측상 page=3 이상이 0건이었던 시점 기준으로는
+  raw 최대 99건), 그중 비도서/오디오북이 섞여 있으므로 최종 저장 건수가
+  100건에 못 미칠 수 있습니다 - 이 경우 원본 데이터 소진이 원인이며 수집
+  로직의 결함이 아닙니다.
 - 다만 "지금 베스트"에는 도서가 아닌 상품(문구류, 오디오북 세트 등)이 실제로
   섞여 있는 것을 확인했습니다:
   * '감쪽같은 수정 테이프 무소음' -> 상세페이지 isbn13이 'G000272432602'
@@ -77,7 +92,7 @@ from test_save_aladin import (
 
 BOOKSTORE = "알라딘"
 LIST_URL = "https://www.aladin.co.kr/shop/common/wbest.aspx"
-TARGET_COUNT = 100  # diagnose_aladin_realtime_pagination.py로 확인된 상한(실제로는 99건)
+TARGET_COUNT = 100  # 확보하려는 "유효 도서"(비도서/오디오북 제외 후) 목표 개수
 DETAIL_REQUEST_DELAY = 2.0
 DETAIL_CONCURRENCY = 4
 
@@ -99,23 +114,19 @@ def fetch_nowbest_list_page(page, page_num):
     return goto_with_retry(page, url)
 
 
-def collect_nowbest(page):
-    """1페이지(1~50위)와 2페이지(51위~)를 모두 가져와 합칩니다.
-    diagnose_aladin_realtime_pagination.py로 실측한 결과 3페이지 이상은
-    빈 응답이라(알라딘 "지금 베스트" 자체가 최대 99건까지만 존재), 1・2
-    페이지만 요청하고 그 이상은 시도하지 않습니다."""
-    all_books = []
-    for page_num, start_rank in ((1, 1), (2, 51)):
-        html = fetch_nowbest_list_page(page, page_num)
-        books = parse_list(html, start_rank)
-        if not books:
-            if page_num == 1:
-                raise RuntimeError("지금 베스트 목록 페이지에서 도서를 하나도 추출하지 못했습니다.")
-            print(f"   -> {page_num}페이지에서 항목을 받지 못했습니다. 여기서 중단합니다.")
-            break
-        all_books.extend(books)
-        print(f"   -> {page_num}페이지에서 {len(books)}건 추가 (누적 {len(all_books)}건)")
-    return all_books[:TARGET_COUNT]
+def fetch_nowbest_page_books(page_num, start_rank):
+    """이 페이지 하나만 담당하는 독립된 Playwright 세션을 열어 목록을
+    가져옵니다. list-fetch 세션과 아래 enrich_with_details()의 세션을
+    절대 중첩시키지 않기 위해(기존 코드도 항상 목록 수집 세션을 완전히
+    닫은 뒤에만 상세조회 세션을 열었음), 페이지마다 새로 열고 닫습니다."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(user_agent=HEADERS["User-Agent"], **CONTEXT_KWARGS)
+            html = fetch_nowbest_list_page(page, page_num)
+            return parse_list(html, start_rank)
+        finally:
+            browser.close()
 
 
 def _fetch_one_detail(page, book):
@@ -152,6 +163,59 @@ def is_real_book(book):
     if "오디오북" in (book.get("title") or ""):
         return False
     return True
+
+
+def collect_valid_books(target_valid=TARGET_COUNT):
+    """유효한 도서(is_real_book 통과)가 target_valid개 모일 때까지, 또는
+    알라딘 원본 목록이 빈 페이지를 반환할 때까지(원본 데이터 소진) 페이지를
+    계속 가져와 상세 페이지까지 조회합니다.
+
+    기존 collect_nowbest()는 목록(최대 2페이지)을 전부 모은 뒤에야 상세
+    조회 -> 필터링을 했기 때문에, 필터링 후 유효 도서가 부족해도 추가
+    페이지를 요청할 방법이 없었습니다. 이 함수는 "한 페이지 조회 -> 그
+    페이지만 상세 조회 -> 필터링 -> 유효 도서 수 확인" 순서로 페이지 단위
+    반복하여, 목표 개수(target_valid)에 도달하거나 원본이 소진될 때까지
+    계속합니다.
+
+    원본 알라딘 순위(rank)는 parse_list()가 각 페이지의 start_rank(누적
+    raw 건수 + 1)를 기준으로 매긴 값을 그대로 사용하고, 필터링 이후 다시
+    번호를 매기지 않습니다.
+
+    반환값: (valid_books, excluded_books, raw_count)
+    """
+    valid_books = []
+    excluded_books = []
+    cumulative_raw = 0
+    page_num = 1
+
+    while len(valid_books) < target_valid:
+        page_books = fetch_nowbest_page_books(page_num, cumulative_raw + 1)
+        if not page_books:
+            if page_num == 1:
+                raise RuntimeError("지금 베스트 목록 페이지에서 도서를 하나도 추출하지 못했습니다.")
+            print(f"   -> {page_num}페이지에서 항목을 받지 못했습니다(원본 데이터 소진). 여기서 종료합니다.")
+            break
+
+        cumulative_raw += len(page_books)
+        print(f"   -> {page_num}페이지에서 raw {len(page_books)}건 추가 (누적 raw {cumulative_raw}건)")
+
+        enrich_with_details(page_books)
+
+        page_valid = 0
+        for book in page_books:
+            if is_real_book(book):
+                valid_books.append(book)
+                page_valid += 1
+            else:
+                excluded_books.append(book)
+        print(
+            f"   -> {page_num}페이지 상세조회 완료: 유효 도서 {page_valid}건, "
+            f"제외 {len(page_books) - page_valid}건 (누적 유효 도서 {len(valid_books)}/{target_valid}건)"
+        )
+
+        page_num += 1
+
+    return valid_books[:target_valid], excluded_books, cumulative_raw
 
 
 def get_previous_realtime_ranks(client):
@@ -192,46 +256,36 @@ def main():
 
     collected_at = datetime.now(timezone.utc).isoformat()
     error_message = None
-    raw_books = []
+    books = []
+    excluded = []
+    raw_count = 0
 
     try:
-        with sync_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as e:
-                raise RuntimeError(
-                    f"브라우저 실행 실패: {e} "
-                    "('playwright install chromium' 실행 여부 확인 필요)"
-                )
-
-            page = browser.new_page(user_agent=HEADERS["User-Agent"], **CONTEXT_KWARGS)
-            print("알라딘 '지금 베스트' 목록 수집 중...")
-            raw_books = collect_nowbest(page)
-            browser.close()
-
         print(
-            f"목록 수집 성공: {len(raw_books)}건. "
-            f"상세 페이지를 동시성={DETAIL_CONCURRENCY}로 조회합니다.\n"
+            f"알라딘 '지금 베스트' 목록/상세 수집 중 "
+            f"(유효 도서 {TARGET_COUNT}개 확보 또는 원본 소진까지 페이지 반복)...\n"
         )
-        raw_books = enrich_with_details(raw_books)
+        books, excluded, raw_count = collect_valid_books()
+        if not books:
+            raise RuntimeError("유효한 도서를 하나도 수집하지 못했습니다.")
+        print(
+            f"\n목록/상세 수집 완료: raw {raw_count}건 중 유효 도서 {len(books)}건, "
+            f"제외 {len(excluded)}건.\n"
+        )
     except Exception as e:
         error_message = str(e)
+        books = []
         print(f"\n알라딘 실시간 수집이 완전히 실패했습니다: {error_message}")
 
-    # 도서가 아닌 항목(문구류, 오디오북 등)은 여기서 걸러내고, 남은 도서만
-    # rank를 1부터 다시 매겨서 "실시간 도서 전용 순위"로 만듭니다.
-    excluded = [b for b in raw_books if not is_real_book(b)]
-    book_only = [b for b in raw_books if is_real_book(b)]
-    book_only.sort(key=lambda b: b["rank"])
-    for i, book in enumerate(book_only):
-        book["rank"] = i + 1
+    # 원본 알라딘 rank(parse_list가 페이지별 누적 위치로 매긴 값)를 그대로
+    # 유지한 채 정렬만 합니다. 재번호를 매기지 않으므로, 중간에 제외된
+    # 항목이 있으면 rank가 연속되지 않을 수 있습니다(예: 4, 6, 7).
+    books.sort(key=lambda b: b["rank"])
 
     if excluded:
         print(f"\n도서가 아닌 것으로 판단해 제외한 항목 {len(excluded)}건:")
         for b in excluded:
             print(f"   - {b['title']} (isbn13={b.get('isbn13') or '(없음)'})")
-
-    books = book_only
 
     for book in books:
         isbn13 = book.get("isbn13")
@@ -283,8 +337,12 @@ def main():
     print("\n" + "=" * 80)
     print(f"알라딘 실시간 수집 성공 여부: {status}")
     print(f"run_id: {run_id}")
-    print(f"수집 권수(도서만): {len(books)}")
+    print(f"원본(raw) 수집 건수: {raw_count}")
+    print(f"비도서/오디오북 등으로 제외된 건수: {len(excluded)}")
+    print(f"수집 권수(유효 도서): {len(books)}")
     print(f"realtime_rankings 저장 권수: {rankings_saved}")
+    if books:
+        print(f"저장된 도서 중 가장 큰 원본 rank: {max(b['rank'] for b in books)}")
     print("=" * 80)
     print("실시간 TOP (순위 | 도서명 | 저자 | 출판사 | ISBN13 | 등락)")
     print("=" * 80)
