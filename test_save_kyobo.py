@@ -62,10 +62,11 @@ USER_AGENT = (
 
 # ─────────────────────────────────────────────
 # 아래 fetch_detail / GET_HREF_JS / ISBN13_PATTERN / IMG_SELECTOR는 이
-# 스크립트의 종합 TOP100 수집(main 이하)에서는 더 이상 쓰지 않지만(내부 API로
-# 전환했으므로 상세페이지 방문 자체가 불필요해짐), test_save_kyobo_realtime.py
-# (실시간 베스트셀러 수집기)가 그대로 import해서 쓰고 있어 남겨둡니다.
-# 실시간 수집기 코드는 이번 전환 범위에 포함되지 않아 건드리지 않았습니다.
+# 스크립트의 종합 TOP100 수집(main 이하)에서는 더 이상 쓰지 않습니다(내부 API로
+# 전환했으므로 상세페이지 방문 자체가 불필요해짐). test_save_kyobo_realtime.py도
+# 같은 내부 API 기반 방식으로 전환되면서 더는 이 4개를 import하지 않아,
+# 현재 저장소 안에서 이 4개를 쓰는 곳은 없습니다. 다만 상세페이지를 직접
+# 파싱해야 하는 경우를 대비해 참고용으로 남겨둡니다.
 # ─────────────────────────────────────────────
 
 GET_HREF_JS = "(img) => img.closest('a') ? img.closest('a').getAttribute('href') : null"
