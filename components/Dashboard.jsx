@@ -337,6 +337,21 @@ export default function Dashboard({
     exitHistoryMode();
   }
 
+  // "과거 기록 조회 중" 배너의 버튼에서 호출합니다. 현재 탭에서 쓰는 날짜
+  // (실시간 탭은 날짜+시)를 오늘/지금으로 되돌리기만 하면, currentDateValue가
+  // 바뀌어 자동조회 useEffect가 알아서 실행됩니다 - 종합/실시간은
+  // exitHistoryMode로 서버 props를 다시 쓰고, 분야 탭은 categoryTodayCache가
+  // 있으면 그대로, 없으면 새로 조회합니다(날짜 input을 직접 오늘로 바꾸는
+  // 것과 완전히 동일한 경로).
+  function returnToNow() {
+    if (isRealtime) {
+      setHistoryRealtimeDate(todayLocalDateStr());
+      setHistoryRealtimeHour(todayLocalHourStr());
+    } else {
+      setHistoryDate(todayLocalDateStr());
+    }
+  }
+
   // 마운트 후 클라이언트에서만 오늘 날짜/지금 시로 채웁니다(서버 렌더링
   // 시점에는 절대 실행되지 않으므로 hydration mismatch가 없습니다).
   useEffect(() => {
@@ -736,8 +751,17 @@ export default function Dashboard({
         )}
         {isPastSelection && (
           <div className="history-banner">
-            📅 과거 기록 조회 중 — 선택한 시점 이전 가장 최근 스냅샷을
-            보여줍니다. 오늘(지금)로 되돌리면 최신 데이터로 돌아옵니다.
+            <span>
+              📅 과거 기록 조회 중 — 선택한 시점 이전 가장 최근 스냅샷을
+              보여줍니다.
+            </span>
+            <button
+              type="button"
+              className="history-banner-button"
+              onClick={returnToNow}
+            >
+              지금으로 돌아가기
+            </button>
           </div>
         )}
       </div>
