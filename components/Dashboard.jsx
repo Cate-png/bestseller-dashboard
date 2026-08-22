@@ -35,6 +35,14 @@ function formatDateTime(iso) {
   )}:${pad(d.getMinutes())} 기준`;
 }
 
+// 날짜(YYYY-MM-DD, <input type="date"> 값)를 "그 날짜의 마지막 순간(UTC
+// 23:59:59.999)"의 ISO 문자열로 바꿉니다. 과거 기록 조회에서 "이 날짜 이전
+// 가장 최근 스냅샷"을 찾을 때 상한선으로 씁니다(정확한 타임존 보정 없이
+// 날짜 단위로만 판단하는 단순한 방식입니다).
+function endOfDayISO(dateStr) {
+  return new Date(`${dateStr}T23:59:59.999Z`).toISOString();
+}
+
 // lib/trends.js가 이미 계산해 둔 결과(rising/newEntries/trend6h/
 // trend24h)를 bookstore 필드로만 나누는 순수 표시용 그룹화입니다. 새로운
 // 집계/계산은 하지 않고, 각 서점 목록 안의 항목·순서·값은 그대로 유지합니다.
@@ -232,12 +240,72 @@ export default function Dashboard({
   const [onlyWisdom, setOnlyWisdom] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(TOTAL_CATEGORY);
 
+  // 과거 기록 조회 상태. historyStoreData가 null이 아니면(=historyMode)
+  // 실시간 조회 대신 /api/history로 받아온 스냅샷을 화면에 표시합니다.
+  // 날짜/시간 입력값은 종합·분야별(date)과 실시간(datetime-local)이
+  // 서로 다른 입력 형식을 쓰므로 따로 관리합니다.
+  const [historyDate, setHistoryDate] = useState("");
+  const [historyDateTime, setHistoryDateTime] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyFetchError, setHistoryFetchError] = useState(null);
+  const [historyStoreData, setHistoryStoreData] = useState(null);
+  const [historyErrors, setHistoryErrors] = useState({});
+  const [historyResolvedAt, setHistoryResolvedAt] = useState({});
+
   const tabs = useMemo(
     () => [TOTAL_CATEGORY, ...categories, REALTIME_TAB],
     [categories]
   );
   const isTotal = selectedCategory === TOTAL_CATEGORY;
   const isRealtime = selectedCategory === REALTIME_TAB;
+  const historyMode = historyStoreData !== null;
+
+  function exitHistoryMode() {
+    setHistoryStoreData(null);
+    setHistoryErrors({});
+    setHistoryResolvedAt({});
+    setHistoryFetchError(null);
+  }
+
+  function selectTab(tab) {
+    setSelectedCategory(tab);
+    exitHistoryMode();
+  }
+
+  async function fetchHistory() {
+    const params = new URLSearchParams();
+    if (isRealtime) {
+      if (!historyDateTime) {
+        setHistoryFetchError("조회할 날짜와 시간을 선택해주세요.");
+        return;
+      }
+      params.set("scope", "realtime");
+      params.set("at", new Date(historyDateTime).toISOString());
+    } else {
+      if (!historyDate) {
+        setHistoryFetchError("조회할 날짜를 선택해주세요.");
+        return;
+      }
+      params.set("scope", isTotal ? "total" : "category");
+      if (!isTotal) params.set("category", selectedCategory);
+      params.set("at", endOfDayISO(historyDate));
+    }
+
+    setHistoryLoading(true);
+    setHistoryFetchError(null);
+    try {
+      const res = await fetch(`/api/history?${params.toString()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "조회에 실패했습니다.");
+      setHistoryStoreData(json.storeData || {});
+      setHistoryErrors(json.errors || {});
+      setHistoryResolvedAt(json.resolvedAt || {});
+    } catch (e) {
+      setHistoryFetchError(String(e.message || e));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   // 도서별 순위 변화 차트 상태. 현재 보고 있는 탭(종합/분야별/실시간)과
   // 동일한 스코프로 /api/book-history를 호출합니다 - 예를 들어 "소설"
@@ -280,18 +348,30 @@ export default function Dashboard({
     setChartError(null);
   }
 
-  const activeStoreData = isRealtime
+  const activeStoreData = historyMode
+    ? historyStoreData
+    : isRealtime
     ? realtimeData
     : isTotal
     ? storeData
     : categoryData[selectedCategory] || {};
-  const activeErrors = isRealtime
+  const activeErrors = historyMode
+    ? historyErrors
+    : isRealtime
     ? realtimeErrors
     : isTotal
     ? errors
     : categoryErrors[selectedCategory] || {};
 
   const activeCollectedAt = useMemo(() => {
+    if (historyMode) {
+      let latest = null;
+      for (const bookstore of bookstores) {
+        const t = historyResolvedAt[bookstore];
+        if (t && (!latest || t > latest)) latest = t;
+      }
+      return latest;
+    }
     if (isTotal) return collectedAt;
     let latest = null;
     for (const bookstore of bookstores) {
@@ -302,7 +382,7 @@ export default function Dashboard({
       }
     }
     return latest;
-  }, [isTotal, collectedAt, activeStoreData, bookstores]);
+  }, [historyMode, historyResolvedAt, isTotal, collectedAt, activeStoreData, bookstores]);
 
   const allRows = useMemo(() => {
     const merged = [];
@@ -403,7 +483,7 @@ export default function Dashboard({
             <button
               key={tab}
               className={`category-tab${selectedCategory === tab ? " active" : ""}`}
-              onClick={() => setSelectedCategory(tab)}
+              onClick={() => selectTab(tab)}
             >
               {tab}
             </button>
@@ -433,6 +513,37 @@ export default function Dashboard({
             </button>
           )}
         </div>
+
+        <div className="history-controls">
+          {isRealtime ? (
+            <input
+              type="datetime-local"
+              value={historyDateTime}
+              onChange={(e) => setHistoryDateTime(e.target.value)}
+            />
+          ) : (
+            <input
+              type="date"
+              value={historyDate}
+              onChange={(e) => setHistoryDate(e.target.value)}
+            />
+          )}
+          <button onClick={fetchHistory} disabled={historyLoading}>
+            {historyLoading ? "조회 중..." : "이 시점 조회"}
+          </button>
+          {historyMode && (
+            <button onClick={exitHistoryMode}>실시간으로 돌아가기</button>
+          )}
+        </div>
+        {historyFetchError && (
+          <div className="history-error">{historyFetchError}</div>
+        )}
+        {historyMode && (
+          <div className="history-banner">
+            📅 과거 기록 조회 중 — 선택한 시점 이전 가장 최근 스냅샷을
+            보여줍니다. 실시간 반영이 아닙니다.
+          </div>
+        )}
       </div>
 
       {Object.keys(activeErrors).length > 0 && (
@@ -459,7 +570,7 @@ export default function Dashboard({
         ))}
       </div>
 
-      {isTotal && (
+      {isTotal && !historyMode && (
       <div className="trend-section">
         <h2>트렌드 분석 (TOP100 전체 기준)</h2>
         <div className="trend-grid">
@@ -633,7 +744,7 @@ export default function Dashboard({
       </div>
       )}
 
-      {!isRealtime && (
+      {!isRealtime && !historyMode && (
       <div className="insight-section">
         <h2>트렌드 키워드</h2>
         {trendKeywords.length === 0 ? (
@@ -667,7 +778,7 @@ export default function Dashboard({
       </div>
       )}
 
-      {isRealtime && (
+      {isRealtime && !historyMode && (
       <div className="realtime-insight-section">
         <h2>실시간 트렌드</h2>
         <div className="realtime-insight-stack">
