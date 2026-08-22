@@ -1,28 +1,46 @@
 """교보문고 "실시간 베스트셀러" 수집 -> Supabase realtime_rankings 저장.
 
-기존 종합 주간 스크립트(test_save_kyobo.py)에서 실제로 검증된 상세 페이지
-파싱 로직(fetch_detail, GET_HREF_JS, ISBN13_PATTERN, IMG_SELECTOR)을 그대로
-import해서 재사용합니다. test_save_kyobo.py 자체는 전혀 수정하지 않습니다.
+TOP100 페이지네이션 + rank_change 계산 방식 전환 (diagnose_kyobo_realtime_api.py로
+GitHub Actions에서 실제 네트워크 응답을 확인한 근거):
 
-목록 페이지: https://store.kyobobook.co.kr/bestseller/realtime
-- 교보문고 사이트 자체 설명상 1시간마다 갱신되는 실시간 베스트셀러이며,
-  기존에 쓰던 /bestseller/total/weekly(주간)와는 완전히 다른 URL입니다.
-- diagnose_realtime.py로 GitHub Actions에서 실제로 확인한 내용:
-  * 이 페이지는 기본 렌더링으로 TOP20까지만 노출됩니다. 추가 페이지네이션
-    파라미터(?page=N 등)가 이 URL에서도 동작하는지는 확인하지 못했으므로,
-    짐작으로 추가하지 않고 확인된 범위(TOP20)만 수집합니다.
-  * 도서 상세 selector(a[href*='product.kyobobook.co.kr/detail/'] img)가
-    매칭한 20건 전부 실제 도서였고, 전자책/기프트/교보only 상품이 섞여
-    들어오지 않는 것을 확인했습니다. 이 selector 자체가 사실상 도서 전용
-    필터 역할을 하므로 별도 필터링 로직 없이 그대로 재사용합니다.
+1. 목록 페이지 https://store.kyobobook.co.kr/bestseller/realtime 는 주간
+   (best-seller/total)과는 별도의 내부 API
+   api/gw/best/best-seller/realtime?page=N&per=20 로 채워지며, 응답에
+   total=100이 명시되어 있고 page=1~5가 실제로 서로 다른 20건씩
+   (1~20위/21~40위/.../81~100위, cmdtCode 중복 0건)을 반환하는 것을
+   확인했습니다. 기존에 TOP20만 수집하던 것은 실제 페이지 한계가 아니라
+   collector가 페이지네이션을 시도하지 않은 결과였습니다. 이제
+   test_save_kyobo.py의 fetch_best_seller_page/item_to_book을 그대로
+   재사용해 5페이지를 모두 수집합니다(카테고리 스크립트와 동일 패턴).
+   상세페이지 방문은 애초에 하지 않습니다(API 응답에 저자/출판사/ISBN이
+   이미 다 있음).
 
-기존 weekly/분야별 시스템과의 분리:
+2. rank_change는 이제 이 API 응답의 frmrRnkn 필드(item_to_book이 이미
+   frmrRnkn - prstRnkn으로 계산해줌, frmrRnkn==0이면 신규 진입으로 보고
+   None)를 그대로 씁니다. 더 이상 realtime_rankings에 저장해둔 우리 자신의
+   직전 스냅샷과 비교하지 않습니다(get_previous_realtime_ranks 제거).
+   이 필드를 쓰기 전에 실시간 API에서 frmrRnkn이 실제로 무엇을 의미하는지
+   추측하지 않고 다음을 실측으로 확인했습니다:
+   - frmrRnkn 키가 TOP100 100건 전부에 존재 (null 0건, 0인 항목 16건 -
+     주간과 동일하게 신규 진입 마커로 판단, 나머지 76건은 prstRnkn과 다른
+     실제 변동값)
+   - 이 API 응답에는 ymw 필드가 "YYYYMMDDHH"(예: 2026082117 = 2026년 8월
+     21일 17시) 형식의 시간 단위 코드로 찍혀 있어, 이 순위가 시간 단위로
+     갱신됨을 뒷받침함
+   - 실시간·주간 양쪽에 다 있고 frmrRnkn이 0/null이 아닌 도서 34건을
+     대조한 결과, 실시간 frmrRnkn이 "같은 도서의 주간 prstRnkn(현재 주간
+     순위)"과 일치한 경우는 0건(0.0%) - 즉 주간 순위를 그대로 재사용하는
+     것이 아니라 실시간 API 고유의 값임을 확인했습니다.
+   위 근거로 frmrRnkn을 "직전 시간대 순위"로 보고 rank_change 계산에
+   적용합니다.
+
+기존 weekly/분야별 시스템과의 분리(변경 없음):
 - rankings / collection_runs / books 테이블에는 전혀 쓰지 않고,
   realtime_rankings / realtime_collection_runs 테이블에만 저장합니다.
-  (books 테이블도 weekly와 공유하지 않기 위해 일부러 쓰지 않고, 제목/작가/
-  출판사를 realtime_rankings 행에 그대로 함께 저장합니다.)
-- test_save_kyobo.py, test_save_kyobo_category.py, categories.py,
-  collect.yml(매일 06시 정기 수집)은 전혀 건드리지 않습니다.
+- test_save_kyobo_category.py, categories.py, collect.yml(매일 06시 정기
+  수집), 예스24/알라딘 실시간 수집기는 전혀 건드리지 않습니다.
+- realtime_rankings/realtime_collection_runs 저장 구조(컬럼 구성, insert
+  방식)는 기존과 동일하게 유지합니다.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
@@ -43,95 +61,81 @@ except ImportError:
     print("오류: supabase 라이브러리가 설치되어 있지 않습니다. (pip install supabase)")
     sys.exit(1)
 
-from concurrency_utils import enrich_details_concurrently
-from test_save_kyobo import fetch_detail, GET_HREF_JS, IMG_SELECTOR
+from test_save_kyobo import USER_AGENT, fetch_best_seller_page, item_to_book
 
 BOOKSTORE = "교보문고"
 LIST_URL = "https://store.kyobobook.co.kr/bestseller/realtime"
-TARGET_COUNT = 20  # diagnose_realtime.py로 확인된 기본 렌더링 범위
-DETAIL_REQUEST_DELAY = 2.0
-DETAIL_CONCURRENCY = 4
+TARGET_COUNT = 100  # diagnose_kyobo_realtime_api.py로 확인된 total=100, page=1~5로 전체 커버
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-)
+
+# 도서로 인정하는 saleCmdtDvsnCode 값. diagnose_kyobo_nonbook_fields.py로
+# GitHub Actions에서 실제 확인한 근거:
+# - 실시간 TOP100 정상 도서(물리책) 98/100건이 saleCmdtDvsnCode='KOR',
+#   나머지 2건은 'EBK'(전자책)였고 둘 다 saleCmdtClstName이 실제 도서
+#   장르명(또는 그에 준하는 값)이었음.
+# - 실제로 TOP100에 섞여 들어온 것으로 확인된 비도서 굿즈("The Scent of
+#   Page : 차량용 방향제(개선판)")를 교보 검색 결과 HTML을 통해 상세페이지로
+#   찾아가 확인한 saleCmdtDvsnCode 값은 'PBC'로, KOR/EBK와 명확히 다름
+#   (saleCmdtGrpDvsnCode는 도서와 동일하게 'SGK'라서 구분 기준으로 쓸 수
+#   없었음). 같이 확인된 "GOGO [정규 3집]"(음반)은 상품 상세 URL 도메인
+#   자체가 product.kyobobook.co.kr가 아니라 hottracks.kyobobook.co.kr로
+#   완전히 별개 시스템이었음 - 도서와 saleCmdtDvsnCode가 같을 이유가 없음.
+BOOK_SALE_CMDT_DVSN_CODES = {"KOR", "EBK"}
 
 
 def load_realtime_list(page):
-    page.goto(LIST_URL, timeout=30000)
-    page.wait_for_load_state("networkidle", timeout=30000)
-    page.wait_for_timeout(2000)
+    """page=1~5(per=20)를 순서대로 열어 실시간 TOP100 전체를 모읍니다
+    (diagnose_kyobo_realtime_api.py로 page당 서로 다른 20건씩 반환되는 것을
+    실제 확인함 - 주간 load_top100_list와 동일한 페이지네이션 구조).
 
-    imgs = page.locator(IMG_SELECTOR)
-    count = imgs.count()
+    saleCmdtDvsnCode가 KOR/EBK가 아닌 항목(디퓨저/방향제/음반 등 비도서
+    굿즈)은 제외합니다. diagnose_kyobo_realtime_api.py로 page=6/7이 빈
+    응답임을 이미 확인했으므로(사이트 자체가 TOP100 너머의 순위 데이터를
+    제공하지 않음), 제외된 만큼 다음 순위로 백필할 방법이 없습니다 - 그래서
+    최종 저장 건수가 100건보다 적어질 수 있습니다. prstRnkn(원래 순위)은
+    재넘버링하지 않고 그대로 유지합니다(예: 45위가 비도서로 제외되면 46위는
+    그대로 46위)."""
     books = []
-    seen_urls = set()
-    rank = 1
-    for i in range(count):
-        if rank > TARGET_COUNT:
+    excluded_count = 0
+    pages_needed = -(-TARGET_COUNT // 20)  # TARGET_COUNT=100 -> 5페이지
+
+    for page_num in range(1, pages_needed + 1):
+        page_url = LIST_URL if page_num == 1 else f"{LIST_URL}?page={page_num}"
+        print(f"{page_num}페이지 로딩 중... ({page_url})")
+        try:
+            items = fetch_best_seller_page(page, page_url)
+        except Exception as e:
+            print(f"   진단: {page_num}페이지 조회 실패: {e}. 여기서 중단합니다.")
             break
-        img = imgs.nth(i)
-        title = img.get_attribute("alt")
-        href = img.evaluate(GET_HREF_JS)
-        if not href or href in seen_urls or not title:
-            continue
-        seen_urls.add(href)
-        full_url = (
-            href if href.startswith("http") else "https://product.kyobobook.co.kr" + href
-        )
-        books.append({"rank": rank, "title": title.strip(), "url": full_url})
-        rank += 1
 
+        page_books = []
+        for item in items:
+            if not item.get("prstRnkn"):
+                continue
+            if item.get("saleCmdtDvsnCode") not in BOOK_SALE_CMDT_DVSN_CODES:
+                excluded_count += 1
+                print(
+                    f"   -> 비도서로 판단해 제외: {item.get('prstRnkn')}위 "
+                    f"'{item.get('cmdtName')}' (saleCmdtDvsnCode="
+                    f"{item.get('saleCmdtDvsnCode')!r})"
+                )
+                continue
+            page_books.append(item_to_book(item))
+
+        books.extend(page_books)
+        print(f"   -> {page_num}페이지에서 {len(page_books)}권 추가 (누적 {len(books)}권)")
+
+        if not page_books and not items:
+            print(f"   진단: {page_num}페이지에서 항목을 하나도 받지 못했습니다. 여기서 중단합니다.")
+            break
+
+    if excluded_count:
+        print(f"\n비도서로 판단해 제외한 항목 {excluded_count}건 (백필 불가 - page=6/7이 빈 응답임을 사전 확인함).")
+    if len(books) < TARGET_COUNT:
+        print(f"진단: 목표({TARGET_COUNT}권)를 채우지 못했습니다({len(books)}권). 비도서 제외 및/또는 페이지 조회 실패가 원인일 수 있습니다.")
+
+    books.sort(key=lambda b: b["rank"])
     return books
-
-
-def _fetch_one_detail(page, book):
-    try:
-        detail = fetch_detail(page, book["url"])
-    except Exception as e:
-        print(f"   -> 상세 페이지 조회 실패, 이 도서는 제목/URL만 저장합니다: {e}")
-        detail = {"author": "", "publisher": "", "isbn13": None}
-
-    book["author"] = detail["author"]
-    book["publisher"] = detail["publisher"]
-    book["isbn13"] = detail["isbn13"]
-
-
-def enrich_with_details(books):
-    return enrich_details_concurrently(
-        books,
-        fetch_one=_fetch_one_detail,
-        user_agent=USER_AGENT,
-        concurrency=DETAIL_CONCURRENCY,
-        request_delay=DETAIL_REQUEST_DELAY,
-    )
-
-
-def get_previous_realtime_ranks(client):
-    """realtime_rankings에서 이 서점의 가장 최근 실시간 스냅샷 isbn13 -> rank
-    매핑을 가져옵니다. rankings(주간)과는 완전히 다른 테이블이라 서로 섞일
-    여지가 없습니다."""
-    latest = (
-        client.table("realtime_rankings")
-        .select("collected_at")
-        .eq("bookstore", BOOKSTORE)
-        .order("collected_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    if not latest.data:
-        return {}
-
-    latest_collected_at = latest.data[0]["collected_at"]
-    prev = (
-        client.table("realtime_rankings")
-        .select("isbn13, rank")
-        .eq("bookstore", BOOKSTORE)
-        .eq("collected_at", latest_collected_at)
-        .execute()
-    )
-    return {row["isbn13"]: row["rank"] for row in prev.data if row["isbn13"]}
 
 
 def main():
@@ -142,10 +146,6 @@ def main():
         sys.exit(1)
 
     client = create_client(supabase_url, supabase_key)
-
-    print("직전 교보문고 실시간 수집 결과 조회 중 (순위 변동 계산용)...")
-    prev_ranks = get_previous_realtime_ranks(client)
-    print(f"직전 스냅샷 도서 수: {len(prev_ranks)}권\n")
 
     collected_at = datetime.now(timezone.utc).isoformat()
     error_message = None
@@ -168,22 +168,10 @@ def main():
         if not books:
             raise RuntimeError("실시간 목록에서 도서를 하나도 추출하지 못했습니다.")
 
-        print(
-            f"\n목록 수집 성공: {len(books)}권. "
-            f"상세 페이지를 동시성={DETAIL_CONCURRENCY}로 조회합니다.\n"
-        )
-        books = enrich_with_details(books)
+        print(f"\n목록 수집 성공: {len(books)}권.\n")
     except Exception as e:
         error_message = str(e)
         print(f"\n교보문고 실시간 수집이 완전히 실패했습니다: {error_message}")
-
-    for book in books:
-        isbn13 = book.get("isbn13")
-        if isbn13 and isbn13 in prev_ranks:
-            book["rank_change"] = prev_ranks[isbn13] - book["rank"]
-        else:
-            book["rank_change"] = None
-        book["match_status"] = "matched" if isbn13 else "no_isbn"
 
     status = "success" if books else "failed"
 

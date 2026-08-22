@@ -15,6 +15,12 @@ import {
   extractTrendKeywords,
   extractNotableFlows,
 } from "../lib/insights";
+import {
+  getRealtimeSurgingBooks,
+  getRealtimeSimultaneousRise,
+  getRealtimeNewEntries,
+  getRealtimeSurgeAggregates,
+} from "../lib/realtimeInsights";
 
 const COLUMN_CLASS = {
   교보문고: "kyobo",
@@ -58,27 +64,37 @@ function RankChange({ rankChange, matchStatus }) {
   return <span className="rank-change flat">-</span>;
 }
 
-function BookRow({ row }) {
+// 실시간 탭에서만 20위 이상 급상승(rank_change >= 20) 도서의 제목을
+// 볼드 처리하고 🔥를 붙여 표시하기 위한 플래그. 다른 탭(종합/분야별)에는
+// highlightSurge를 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
+function BookRow({ row, highlightSurge }) {
   const wisdom = isWisdomHouse(row.publisher);
+  const isSurge =
+    highlightSurge && typeof row.rank_change === "number" && row.rank_change >= 20;
+  const titleClass = `book-title${wisdom ? " wisdom-title" : ""}${
+    isSurge ? " surge-title" : ""
+  }`;
+  const titleContent = (
+    <>
+      {wisdom && <span className="wisdom-badge">위즈덤</span>}
+      {isSurge && (
+        <span className="surge-emoji" aria-hidden="true">
+          🔥
+        </span>
+      )}
+      {row.title}
+    </>
+  );
   return (
     <div className={`book-row${wisdom ? " wisdom" : ""}`}>
       <div className="rank">{row.rank}</div>
       <div className="book-info">
         {row.url ? (
-          <a
-            className={`book-title${wisdom ? " wisdom-title" : ""}`}
-            href={row.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {wisdom && <span className="wisdom-badge">위즈덤</span>}
-            {row.title}
+          <a className={titleClass} href={row.url} target="_blank" rel="noopener noreferrer">
+            {titleContent}
           </a>
         ) : (
-          <span className={`book-title${wisdom ? " wisdom-title" : ""}`}>
-            {wisdom && <span className="wisdom-badge">위즈덤</span>}
-            {row.title}
-          </span>
+          <span className={titleClass}>{titleContent}</span>
         )}
         <div className="book-sub">
           {row.author || "저자 미상"} · {row.publisher || "출판사 미상"}
@@ -119,6 +135,48 @@ function BookColumn({ bookstore, rows, error, query, onlyWisdom }) {
   );
 }
 
+// 실시간 베스트셀러 탭 전용: 서점별로 접었다 펼 수 있는 아코디언 섹션.
+// BookColumn과 표시 내용(BookRow)은 동일하지만, 헤더를 눌러 열고 닫을 수 있습니다.
+function RealtimeAccordionSection({ bookstore, rows, error, query, onlyWisdom, open, onToggle }) {
+  const visibleRows = rows.filter(
+    (r) => matchesSearch(r, query) && (!onlyWisdom || isWisdomHouse(r.publisher))
+  );
+
+  return (
+    <div className={`realtime-section${open ? "" : " collapsed"}`}>
+      <button
+        type="button"
+        className={`realtime-section-header ${COLUMN_CLASS[bookstore] || ""}`}
+        onClick={onToggle}
+        aria-expanded={open}
+      >
+        <span>
+          {bookstore}{" "}
+          <span className="column-count">
+            ({visibleRows.length}/{rows.length})
+          </span>
+        </span>
+        <span className="realtime-toggle-icon">▾</span>
+      </button>
+      {open && (
+        <div className="book-list">
+          {error && rows.length === 0 && (
+            <div style={{ padding: 12, fontSize: 13, color: "#a00" }}>{error}</div>
+          )}
+          {rows.length > 0 && visibleRows.length === 0 && (
+            <div style={{ padding: 12, fontSize: 13, color: "#999" }}>
+              조건에 맞는 도서가 없습니다.
+            </div>
+          )}
+          {visibleRows.map((row) => (
+            <BookRow key={`${bookstore}-realtime-${row.rank}`} row={row} highlightSurge />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrendCard({ title, children }) {
   return (
     <div className="trend-card">
@@ -129,6 +187,7 @@ function TrendCard({ title, children }) {
 }
 
 const TOTAL_CATEGORY = "종합";
+const REALTIME_TAB = "실시간 베스트셀러";
 
 export default function Dashboard({
   bookstores,
@@ -140,16 +199,36 @@ export default function Dashboard({
   categories = [],
   categoryData = {},
   categoryErrors = {},
+  realtimeData = {},
+  realtimeErrors = {},
 }) {
   const [query, setQuery] = useState("");
   const [onlyWisdom, setOnlyWisdom] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(TOTAL_CATEGORY);
+  const [realtimeOpen, setRealtimeOpen] = useState(() =>
+    Object.fromEntries(bookstores.map((b) => [b, true]))
+  );
 
-  const tabs = useMemo(() => [TOTAL_CATEGORY, ...categories], [categories]);
+  const toggleRealtimeOpen = (bookstore) =>
+    setRealtimeOpen((prev) => ({ ...prev, [bookstore]: !prev[bookstore] }));
+
+  const tabs = useMemo(
+    () => [TOTAL_CATEGORY, ...categories, REALTIME_TAB],
+    [categories]
+  );
   const isTotal = selectedCategory === TOTAL_CATEGORY;
+  const isRealtime = selectedCategory === REALTIME_TAB;
 
-  const activeStoreData = isTotal ? storeData : categoryData[selectedCategory] || {};
-  const activeErrors = isTotal ? errors : categoryErrors[selectedCategory] || {};
+  const activeStoreData = isRealtime
+    ? realtimeData
+    : isTotal
+    ? storeData
+    : categoryData[selectedCategory] || {};
+  const activeErrors = isRealtime
+    ? realtimeErrors
+    : isTotal
+    ? errors
+    : categoryErrors[selectedCategory] || {};
 
   const activeCollectedAt = useMemo(() => {
     if (isTotal) return collectedAt;
@@ -201,12 +280,60 @@ export default function Dashboard({
     [activeUniqueBooks]
   );
 
+  // 실시간 탭 전용 인사이트: realtimeData만 사용하고(rankings/categoryData와
+  // 섞지 않음), storeData 기반 allRows와는 완전히 별개의 배열입니다.
+  const realtimeAllRows = useMemo(() => {
+    const merged = [];
+    for (const bookstore of bookstores) {
+      for (const row of realtimeData[bookstore] || []) {
+        merged.push({ ...row, bookstore });
+      }
+    }
+    return merged;
+  }, [bookstores, realtimeData]);
+
+  // 서점별 그룹핑 표시를 위해 계산 로직(필터/정렬)은 그대로 둔 채, 서점별로
+  // 나눈 부분집합에 동일한 함수를 그대로 적용합니다(realtimeInsights.js는
+  // 수정하지 않음).
+  const realtimeSurgingByStore = useMemo(() => {
+    const byStore = {};
+    for (const bookstore of bookstores) {
+      byStore[bookstore] = getRealtimeSurgingBooks(
+        realtimeAllRows.filter((r) => r.bookstore === bookstore),
+        5
+      );
+    }
+    return byStore;
+  }, [realtimeAllRows, bookstores]);
+  const realtimeSimultaneousRise = useMemo(
+    () => getRealtimeSimultaneousRise(realtimeAllRows, 2, 5),
+    [realtimeAllRows]
+  );
+  const realtimeNewEntriesByStore = useMemo(() => {
+    const byStore = {};
+    for (const bookstore of bookstores) {
+      byStore[bookstore] = getRealtimeNewEntries(
+        realtimeAllRows.filter((r) => r.bookstore === bookstore),
+        5
+      );
+    }
+    return byStore;
+  }, [realtimeAllRows, bookstores]);
+  const realtimeSurgeAggregates = useMemo(
+    () => getRealtimeSurgeAggregates(realtimeAllRows),
+    [realtimeAllRows]
+  );
+  const realtimeSurgeKeywords = useMemo(
+    () => extractTrendKeywords(realtimeSurgeAggregates.surgeRows, 5),
+    [realtimeSurgeAggregates]
+  );
+
   return (
     <div className="page-shell">
       <div className="header">
         <img src="/logo.png" alt="위즈덤하우스" className="brand-logo" />
-        <h1>주간 베스트셀러 현황</h1>
-        <div className="meta">매일 오전 6시 갱신</div>
+        <h1>{isRealtime ? "실시간 베스트셀러 현황" : "주간 베스트셀러 현황"}</h1>
+        <div className="meta">{isRealtime ? "매시간 갱신" : "매일 오전 6시 갱신"}</div>
         <div className="meta">{formatDateTime(activeCollectedAt)}</div>
         <div className="category-tabs">
           {tabs.map((tab) => (
@@ -253,18 +380,35 @@ export default function Dashboard({
         </div>
       )}
 
-      <div className="columns">
-        {bookstores.map((bookstore) => (
-          <BookColumn
-            key={bookstore}
-            bookstore={bookstore}
-            rows={activeStoreData[bookstore] || []}
-            error={activeErrors[bookstore]}
-            query={query}
-            onlyWisdom={onlyWisdom}
-          />
-        ))}
-      </div>
+      {isRealtime ? (
+        <div className="realtime-accordion">
+          {bookstores.map((bookstore) => (
+            <RealtimeAccordionSection
+              key={bookstore}
+              bookstore={bookstore}
+              rows={activeStoreData[bookstore] || []}
+              error={activeErrors[bookstore]}
+              query={query}
+              onlyWisdom={onlyWisdom}
+              open={realtimeOpen[bookstore] !== false}
+              onToggle={() => toggleRealtimeOpen(bookstore)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="columns">
+          {bookstores.map((bookstore) => (
+            <BookColumn
+              key={bookstore}
+              bookstore={bookstore}
+              rows={activeStoreData[bookstore] || []}
+              error={activeErrors[bookstore]}
+              query={query}
+              onlyWisdom={onlyWisdom}
+            />
+          ))}
+        </div>
+      )}
 
       {isTotal && (
       <div className="trend-section">
@@ -384,6 +528,7 @@ export default function Dashboard({
       </div>
       )}
 
+      {!isRealtime && (
       <div className="insight-section">
         <h2>트렌드 키워드</h2>
         {trendKeywords.length === 0 ? (
@@ -415,6 +560,153 @@ export default function Dashboard({
           </ul>
         )}
       </div>
+      )}
+
+      {isRealtime && (
+      <div className="realtime-insight-section">
+        <h2>실시간 트렌드</h2>
+        <div className="realtime-insight-stack">
+          <div className="realtime-insight-card realtime-insight-card-wide">
+            <h3>🔥 지금 치고 올라오는 책</h3>
+            <div className="realtime-store-columns">
+              {bookstores.map((bookstore) => (
+                <div className="realtime-store-column" key={bookstore}>
+                  <div className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}>
+                    {bookstore}
+                  </div>
+                  {(realtimeSurgingByStore[bookstore] || []).length === 0 ? (
+                    <p className="trend-empty">아직 20위 이상 상승한 도서가 없습니다.</p>
+                  ) : (
+                    <ul>
+                      {realtimeSurgingByStore[bookstore].map((r) => (
+                        <li key={`${bookstore}-${r.isbn13 || r.title}-surge`}>
+                          {r.title}
+                          <span className="realtime-insight-sub">
+                            {" "}
+                            — {r.author || "저자 미상"} · {r.publisher || "출판사 미상"}
+                          </span>
+                          <span className="realtime-insight-meta">
+                            {" "}
+                            (현재 {r.rank}위, ▲{r.rank_change})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="realtime-insight-card realtime-insight-card-wide">
+            <h3>📈 여러 서점에서 동시에 상승 중</h3>
+            {realtimeSimultaneousRise.length === 0 ? (
+              <p className="trend-empty">2개 이상 서점에서 동시에 상승 중인 도서가 없습니다.</p>
+            ) : (
+              <ul>
+                {realtimeSimultaneousRise.map((b) => (
+                  <li key={b.isbn13}>
+                    {b.title}
+                    <span className="realtime-insight-meta"> (총 상승폭 ▲{b.totalRise})</span>
+                    <br />
+                    <span className="realtime-insight-sub">
+                      {b.stores
+                        .map((s) => {
+                          const change =
+                            typeof s.rank_change === "number"
+                              ? s.rank_change > 0
+                                ? `▲${s.rank_change}`
+                                : s.rank_change < 0
+                                ? `▼${Math.abs(s.rank_change)}`
+                                : "-"
+                              : s.match_status === "matched"
+                              ? "NEW"
+                              : "-";
+                          return `${s.bookstore} ${s.rank}위(${change})`;
+                        })
+                        .join(" · ")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="realtime-insight-card realtime-insight-card-wide">
+            <h3>🆕 새롭게 등장한 책</h3>
+            <div className="realtime-store-columns">
+              {bookstores.map((bookstore) => (
+                <div className="realtime-store-column" key={bookstore}>
+                  <div className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}>
+                    {bookstore}
+                  </div>
+                  {(realtimeNewEntriesByStore[bookstore] || []).length === 0 ? (
+                    <p className="trend-empty">새롭게 등장한 도서가 없습니다.</p>
+                  ) : (
+                    <ul>
+                      {realtimeNewEntriesByStore[bookstore].map((b) => (
+                        <li key={b.isbn13 || b.title}>
+                          {b.title}
+                          <span className="realtime-insight-meta"> (현재 {b.bestRank}위)</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="realtime-insight-card realtime-insight-card-wide">
+            <h3>🔍 급상승 출판사 · 저자 · 키워드</h3>
+            <div className="realtime-insight-subheading">출판사</div>
+            {realtimeSurgeAggregates.publishers.length === 0 ? (
+              <p className="trend-empty">2권 이상 겹치는 출판사가 없습니다.</p>
+            ) : (
+              <ul>
+                {realtimeSurgeAggregates.publishers.slice(0, 5).map((p) => (
+                  <li key={`publisher-${p.name}`}>
+                    {p.name}
+                    <span className="realtime-insight-meta">
+                      {" "}
+                      ({p.count}권, 총 상승폭 ▲{p.totalRise})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="realtime-insight-subheading">저자</div>
+            {realtimeSurgeAggregates.authors.length === 0 ? (
+              <p className="trend-empty">2권 이상 겹치는 저자가 없습니다.</p>
+            ) : (
+              <ul>
+                {realtimeSurgeAggregates.authors.slice(0, 5).map((a) => (
+                  <li key={`author-${a.name}`}>
+                    {a.name}
+                    <span className="realtime-insight-meta">
+                      {" "}
+                      ({a.count}권, 총 상승폭 ▲{a.totalRise})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="realtime-insight-subheading">키워드</div>
+            {realtimeSurgeKeywords.length === 0 ? (
+              <p className="trend-empty">두드러진 키워드가 없습니다.</p>
+            ) : (
+              <div className="keyword-list">
+                {realtimeSurgeKeywords.map(({ keyword, bookCount }) => (
+                  <span className="keyword-chip" key={`realtime-kw-${keyword}`}>
+                    {keyword} <span className="keyword-count">{bookCount}권</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      )}
     </div>
   );
 }

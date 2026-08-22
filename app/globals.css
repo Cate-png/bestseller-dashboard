@@ -187,6 +187,14 @@ body {
   font-weight: 700;
 }
 
+.book-title.surge-title {
+  font-weight: 700;
+}
+
+.surge-emoji {
+  margin-right: 3px;
+}
+
 .wisdom-badge {
   display: inline-block;
   font-size: 10px;
@@ -218,6 +226,54 @@ body {
 .rank-change.down { color: #2563eb; }
 .rank-change.new { color: #16a34a; }
 .rank-change.flat { color: #aaa; }
+
+.realtime-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 24px;
+}
+
+.realtime-section {
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  overflow: hidden;
+}
+
+.realtime-section-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.realtime-section-header.kyobo { background: #1e3a8a; }
+.realtime-section-header.yes24 { background: #d9534f; }
+.realtime-section-header.aladin { background: #e0a800; }
+
+.realtime-toggle-icon {
+  flex-shrink: 0;
+  margin-left: 8px;
+  transition: transform 0.15s ease;
+}
+
+.realtime-section.collapsed .realtime-toggle-icon {
+  transform: rotate(-90deg);
+}
+
+.realtime-section .book-list {
+  max-height: 80vh;
+  overflow-y: auto;
+}
 
 .trend-section {
   padding: 8px 24px 32px 24px;
@@ -259,6 +315,111 @@ body {
 .trend-empty {
   color: #999;
   font-size: 12px;
+}
+
+.realtime-insight-section {
+  padding: 8px 24px 32px 24px;
+}
+
+.realtime-insight-section h2 {
+  font-size: 17px;
+  margin: 0 0 12px 0;
+}
+
+.realtime-insight-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.realtime-insight-card {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.realtime-insight-card-wide {
+  width: 100%;
+}
+
+.realtime-insight-card h3 {
+  font-size: 14px;
+  margin: 0 0 8px 0;
+}
+
+.realtime-insight-card ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.realtime-insight-card li {
+  margin-bottom: 8px;
+}
+
+.realtime-insight-subheading {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #555;
+}
+
+.realtime-insight-subheading:first-of-type {
+  margin-top: 0;
+}
+
+.realtime-insight-sub {
+  color: #666;
+}
+
+.realtime-insight-meta {
+  color: #888;
+  font-size: 12px;
+}
+
+/* 🔥 지금 치고 올라오는 책 / 🆕 새롭게 등장한 책 섹션의 서점별 그룹핑.
+   교보문고/예스24/알라딘을 각각 별도 컬럼으로 나눠서, 책마다 [서점명]
+   접두어를 반복하지 않고도 어느 서점 데이터인지 한눈에 구분되게 합니다. */
+.realtime-store-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.realtime-store-column {
+  min-width: 0;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.realtime-store-column-header {
+  padding: 6px 10px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.realtime-store-column-header.kyobo { background: #1e3a8a; }
+.realtime-store-column-header.yes24 { background: #d9534f; }
+.realtime-store-column-header.aladin { background: #e0a800; }
+
+.realtime-store-column ul {
+  margin: 0;
+  padding: 8px 10px 8px 26px;
+  font-size: 12.5px;
+}
+
+.realtime-store-column li {
+  margin-bottom: 8px;
+}
+
+.realtime-store-column .trend-empty {
+  padding: 8px 10px;
+  margin: 0;
 }
 
 .insight-section {
@@ -373,6 +534,20 @@ body {
     max-height: none;
   }
 
+  .realtime-accordion {
+    gap: 10px;
+    padding: 12px 12px;
+  }
+
+  .realtime-section .book-list {
+    max-height: none;
+  }
+
+  .realtime-section-header {
+    padding: 11px 14px;
+    font-size: 14px;
+  }
+
   .book-row {
     padding: 9px 10px;
     gap: 8px;
@@ -419,6 +594,18 @@ body {
 
   .insight-section {
     padding: 8px 12px 24px;
+  }
+
+  .realtime-insight-section {
+    padding: 8px 12px 24px;
+  }
+
+  .realtime-insight-card {
+    padding: 12px;
+  }
+
+  .realtime-store-columns {
+    grid-template-columns: 1fr;
   }
 
   .keyword-chip {
