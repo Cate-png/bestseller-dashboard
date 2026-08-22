@@ -323,12 +323,21 @@ export default function Dashboard({
 
   // 날짜 입력값이 바뀌거나(오늘로 되돌리는 경우 포함) 탭/분야가 바뀔
   // 때마다 자동으로 다시 조회합니다. 별도의 "조회" 버튼은 없습니다. 단,
-  // 분야 탭(종합/실시간이 아닌 탭)이면서 "오늘"을 보는 중이라면 먼저
+  // 종합 탭 + "오늘"인 경우는 app/page.js가 서버 렌더링 시점에 이미 최신
+  // 종합 데이터(storeData prop)를 내려줬으므로 /api/history를 또 호출하지
+  // 않고 exitHistoryMode()로 historyStoreData를 비워 서버 props를 그대로
+  // 쓰게 합니다(activeStoreData의 기본 분기) - 페이지를 열 때마다 같은
+  // 데이터를 서버·클라이언트에서 두 번 조회하던 중복을 없앤 것입니다.
+  // 분야 탭(종합/실시간이 아닌 탭)이면서 "오늘"을 보는 중이라면
   // categoryTodayCache를 확인해서, 이미 조회한 적 있는 분야는 네트워크
-  // 요청 없이 캐시된 값을 그대로 씁니다. 종합/실시간 탭과 과거 날짜
-  // 조회는 캐시를 전혀 거치지 않고 기존과 동일하게 항상 다시 조회합니다.
+  // 요청 없이 캐시된 값을 그대로 씁니다. 실시간 탭과 과거 날짜 조회는
+  // 기존과 동일하게 항상 다시 조회합니다.
   useEffect(() => {
     if (!currentDateValue) return; // 마운트 직후 아직 오늘 날짜가 안 채워진 순간
+    if (isTotal && !isPastSelection) {
+      exitHistoryMode();
+      return;
+    }
     if (!isTotal && !isRealtime && !isPastSelection) {
       const cached = categoryTodayCache[selectedCategory];
       if (cached) {
