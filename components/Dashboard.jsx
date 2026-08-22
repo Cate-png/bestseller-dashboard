@@ -271,6 +271,15 @@ export default function Dashboard({
   const [historyErrors, setHistoryErrors] = useState({});
   const [historyResolvedAt, setHistoryResolvedAt] = useState({});
 
+  // 분야 탭의 "오늘(최신)" 조회 결과 캐시. 서버(app/page.js)는 더 이상
+  // 분야별 데이터를 미리 조회하지 않고, 분야 탭을 처음 클릭한 시점에만
+  // /api/history를 호출합니다(lazy load). 한 번 조회한 분야는 다른 탭에
+  // 갔다가 다시 눌러도 이 캐시에서 즉시 꺼내 쓰고 재조회하지 않습니다.
+  // 과거 날짜 조회는 캐시하지 않고(날짜를 바꾸면 매번 다시 조회) "오늘"
+  // 결과만 캐시합니다 - 종합/실시간 탭은 이 캐시를 전혀 쓰지 않고 기존과
+  // 동일하게 탭/날짜가 바뀔 때마다 항상 다시 조회합니다.
+  const [categoryTodayCache, setCategoryTodayCache] = useState({});
+
   // 탭을 1단(종합/실시간 베스트셀러)과 2단(분야별 14개)으로 분리해서
   // 렌더링합니다. categories(=lib/categories.js의 CATEGORIES)의 배열
   // 순서가 그대로 2단 탭의 표시 순서가 됩니다.
@@ -313,12 +322,26 @@ export default function Dashboard({
   }, []);
 
   // 날짜 입력값이 바뀌거나(오늘로 되돌리는 경우 포함) 탭/분야가 바뀔
-  // 때마다 자동으로 다시 조회합니다. 별도의 "조회" 버튼은 없습니다.
+  // 때마다 자동으로 다시 조회합니다. 별도의 "조회" 버튼은 없습니다. 단,
+  // 분야 탭(종합/실시간이 아닌 탭)이면서 "오늘"을 보는 중이라면 먼저
+  // categoryTodayCache를 확인해서, 이미 조회한 적 있는 분야는 네트워크
+  // 요청 없이 캐시된 값을 그대로 씁니다. 종합/실시간 탭과 과거 날짜
+  // 조회는 캐시를 전혀 거치지 않고 기존과 동일하게 항상 다시 조회합니다.
   useEffect(() => {
     if (!currentDateValue) return; // 마운트 직후 아직 오늘 날짜가 안 채워진 순간
+    if (!isTotal && !isRealtime && !isPastSelection) {
+      const cached = categoryTodayCache[selectedCategory];
+      if (cached) {
+        setHistoryStoreData(cached.storeData);
+        setHistoryErrors(cached.errors);
+        setHistoryResolvedAt(cached.resolvedAt);
+        setHistoryFetchError(null);
+        return;
+      }
+    }
     fetchHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDateValue, isTotal, isRealtime, selectedCategory]);
+  }, [currentDateValue, isTotal, isRealtime, selectedCategory, isPastSelection]);
 
   async function fetchHistory() {
     const params = new URLSearchParams();
@@ -339,9 +362,25 @@ export default function Dashboard({
       const res = await fetch(`/api/history?${params.toString()}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "조회에 실패했습니다.");
-      setHistoryStoreData(json.storeData || {});
-      setHistoryErrors(json.errors || {});
-      setHistoryResolvedAt(json.resolvedAt || {});
+      const nextStoreData = json.storeData || {};
+      const nextErrors = json.errors || {};
+      const nextResolvedAt = json.resolvedAt || {};
+      setHistoryStoreData(nextStoreData);
+      setHistoryErrors(nextErrors);
+      setHistoryResolvedAt(nextResolvedAt);
+      // 분야 탭의 "오늘" 조회 결과만 캐시에 저장합니다(다음에 같은 분야
+      // 탭으로 돌아왔을 때 재조회를 건너뛰기 위함). 종합/실시간, 과거 날짜
+      // 조회는 캐시하지 않습니다.
+      if (!isTotal && !isRealtime && !isPastSelection) {
+        setCategoryTodayCache((prev) => ({
+          ...prev,
+          [selectedCategory]: {
+            storeData: nextStoreData,
+            errors: nextErrors,
+            resolvedAt: nextResolvedAt,
+          },
+        }));
+      }
     } catch (e) {
       setHistoryFetchError(String(e.message || e));
     } finally {

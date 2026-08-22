@@ -118,31 +118,18 @@ export default async function Page() {
     }
   }
 
-  // 분야별 TOP10: 종합과는 완전히 별개로, 6개 분야 x 3개 서점 데이터를
-  // 페이지 렌더링 시점에 함께 조회해둡니다 (분야 전환은 클라이언트에서
-  // 순수 상태 전환만 하면 되도록).
+  // 분야별 TOP10: 예전에는 14개 분야 x 3개 서점을 페이지 렌더링 시점에
+  // 전부 미리 조회해뒀지만(최대 84개 쿼리), 분야가 6개에서 14개로 늘면서
+  // 초기 로딩이 눈에 띄게 느려졌습니다. Dashboard.jsx가 어차피 마운트 후
+  // 선택된 탭 기준으로 /api/history를 호출해 최신 데이터를 다시 받아오는
+  // 구조라 이 프리페치 결과는 화면에 거의 쓰이지 않았습니다(분야 탭으로
+  // 진입하는 순간 클라이언트가 곧바로 덮어씀). 그래서 서버에서는 더 이상
+  // 분야별 데이터를 조회하지 않고, 분야 탭을 클릭했을 때만 Dashboard.jsx가
+  // /api/history?scope=category&category=...를 호출해 그 분야 데이터를
+  // 지연 조회(lazy load)하도록 바꿨습니다. categories(분야 이름 목록)는
+  // 탭 렌더링에 계속 필요하므로 그대로 넘깁니다.
   const categoryData = {};
   const categoryErrors = {};
-  await Promise.all(
-    CATEGORIES.map(async (category) => {
-      categoryData[category] = {};
-      categoryErrors[category] = {};
-      await Promise.all(
-        BOOKSTORES.map(async (bookstore) => {
-          try {
-            const rankings = await getLatestCategoryRankings(client, bookstore, category);
-            categoryData[category][bookstore] = rankings;
-            if (rankings.length === 0) {
-              categoryErrors[category][bookstore] = "아직 수집된 데이터가 없습니다.";
-            }
-          } catch (e) {
-            categoryData[category][bookstore] = [];
-            categoryErrors[category][bookstore] = String(e.message || e);
-          }
-        })
-      );
-    })
-  );
 
   // 실시간 베스트셀러: 기존 주간/분야별 rankings와 완전히 별개인 realtime_rankings에서
   // 서점별 최신 스냅샷만 조회합니다. 이 단계에서는 순위 표시만 하고 트렌드/급상승
