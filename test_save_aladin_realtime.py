@@ -17,7 +17,20 @@ diagnose_realtime.py로 GitHub Actions에서 실제로 확인한 내용:
 - 이 URL은 1차 시도에서 CloudFront 403을 받았지만, 기존 goto_with_retry()로
   재시도하면 정상 로딩됩니다(기존 알라딘 스크래퍼가 이미 겪던 일시적 차단과
   동일한 패턴).
-- 기존 selector(div.ss_book_box / a.bo3)가 그대로 매칭되고, 50건이 잡힙니다.
+- 기존 selector(div.ss_book_box / a.bo3)가 그대로 매칭되고, 1페이지에 50건이
+  잡힙니다.
+
+diagnose_aladin_realtime_pagination.py로 추가 확인한 내용(page=1만 수집하던
+탓에 최종 저장 건수가 46건에 그쳤던 원인 조사):
+- 종합 주간 수집기(test_save_aladin.py)와 동일한 page=2&cnt=1000&SortOrder=1
+  파라미터를 NowBest에도 그대로 적용하면 51위 이후 49건이 추가로 잡힙니다
+  (1페이지 50건 + 2페이지 49건 = 99건).
+- page=3 이상은 실제로 0건(빈 응답)입니다 - 알라딘 "지금 베스트"는 100건이
+  아니라 최대 99건까지만 존재합니다. 그래서 아래 collect_nowbest()는 1・2
+  페이지를 모두 가져오도록 수정했고(TARGET_COUNT도 50 -> 100으로 올렸지만
+  실제로는 원본 데이터 자체가 99건이 상한), 도서가 아닌 항목(문구류/
+  오디오북)을 걸러낸 뒤 남는 건수만 최종 realtime_rankings에 저장됩니다
+  (정확한 최종 건수는 매 실행 시점의 실제 목록 구성에 따라 달라짐).
 - 다만 "지금 베스트"에는 도서가 아닌 상품(문구류, 오디오북 세트 등)이 실제로
   섞여 있는 것을 확인했습니다:
   * '감쪽같은 수정 테이프 무소음' -> 상세페이지 isbn13이 'G000272432602'
@@ -64,27 +77,45 @@ from test_save_aladin import (
 
 BOOKSTORE = "알라딘"
 LIST_URL = "https://www.aladin.co.kr/shop/common/wbest.aspx"
-TARGET_COUNT = 50  # diagnose_realtime.py로 확인된, 이 URL의 1페이지 노출 개수
+TARGET_COUNT = 100  # diagnose_aladin_realtime_pagination.py로 확인된 상한(실제로는 99건)
 DETAIL_REQUEST_DELAY = 2.0
 DETAIL_CONCURRENCY = 4
 
 
-def fetch_nowbest_list_page(page):
+def fetch_nowbest_list_page(page, page_num):
     params = {
         "BranchType": "1",  # 국내도서
         "BestType": "NowBest",  # "지금 베스트" - 실시간에 가장 가까운 랭킹
     }
+    if page_num > 1:
+        # 종합 주간 수집기(test_save_aladin.py)의 fetch_list_page와 동일한
+        # 2페이지 이후 파라미터 - diagnose_aladin_realtime_pagination.py로
+        # NowBest에도 그대로 적용됨을 실측 확인함.
+        params["page"] = str(page_num)
+        params["cnt"] = "1000"
+        params["SortOrder"] = "1"
     query = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{LIST_URL}?{query}"
     return goto_with_retry(page, url)
 
 
 def collect_nowbest(page):
-    html = fetch_nowbest_list_page(page)
-    books = parse_list(html, start_rank=1)
-    if not books:
-        raise RuntimeError("지금 베스트 목록 페이지에서 도서를 하나도 추출하지 못했습니다.")
-    return books[:TARGET_COUNT]
+    """1페이지(1~50위)와 2페이지(51위~)를 모두 가져와 합칩니다.
+    diagnose_aladin_realtime_pagination.py로 실측한 결과 3페이지 이상은
+    빈 응답이라(알라딘 "지금 베스트" 자체가 최대 99건까지만 존재), 1・2
+    페이지만 요청하고 그 이상은 시도하지 않습니다."""
+    all_books = []
+    for page_num, start_rank in ((1, 1), (2, 51)):
+        html = fetch_nowbest_list_page(page, page_num)
+        books = parse_list(html, start_rank)
+        if not books:
+            if page_num == 1:
+                raise RuntimeError("지금 베스트 목록 페이지에서 도서를 하나도 추출하지 못했습니다.")
+            print(f"   -> {page_num}페이지에서 항목을 받지 못했습니다. 여기서 중단합니다.")
+            break
+        all_books.extend(books)
+        print(f"   -> {page_num}페이지에서 {len(books)}건 추가 (누적 {len(all_books)}건)")
+    return all_books[:TARGET_COUNT]
 
 
 def _fetch_one_detail(page, book):
