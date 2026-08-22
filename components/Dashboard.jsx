@@ -120,12 +120,11 @@ function BookRow({ row, highlightSurge }) {
 // 20위 이상 급상승 도서를 BookRow에서 강조 표시하게 합니다. 종합/분야별
 // 탭은 이 prop을 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
 //
-// collapsible: 종합/분야별(주간 베스트셀러) 탭에서만 true로 넘겨, 모바일
-// 화면에서 서점 헤더를 눌러 그 서점의 목록만 접었다 펼 수 있게 합니다.
-// 실시간 탭에는 이 prop을 넘기지 않으므로(collapsible=false) 기존 UI가
-// 그대로 유지됩니다. 접힘 여부는 CSS(.column.collapsed .book-list)로만
-// 숨기고 모바일 media query 안에서만 적용되므로, 데스크톱에서는 접혀 있는
-// 상태여도 항상 목록이 그대로 보입니다(기존 3열 레이아웃 유지).
+// collapsible: 모바일 화면에서 서점 헤더를 눌러 그 서점의 목록만 접었다
+// 펼 수 있게 합니다(종합/분야별/실시간 탭 공통). 접힘 여부는
+// CSS(.column.collapsed .book-list)로만 숨기고 모바일 media query 안에서만
+// 적용되므로, 데스크톱에서는 접혀 있는 상태여도 항상 목록이 그대로
+// 보입니다(기존 3열 레이아웃 유지).
 function BookColumn({
   bookstore,
   rows,
@@ -421,7 +420,7 @@ export default function Dashboard({
             query={query}
             onlyWisdom={onlyWisdom}
             highlightSurge={isRealtime}
-            collapsible={!isRealtime}
+            collapsible
           />
         ))}
       </div>
