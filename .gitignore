@@ -1,6 +1,11 @@
 node_modules/
 .next/
-.env.local
+
+# 환경변수/secret 파일 - 실제 값이 든 .env 계열은 전부 추적에서 제외합니다.
+# .env.local.example은 값이 없는 placeholder 템플릿이라 예외로 계속 추적합니다.
+.env
+.env.*
+!.env*.example
 
 .vercel
 __pycache__/
