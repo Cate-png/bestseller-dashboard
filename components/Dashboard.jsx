@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { isWisdomHouse } from "../lib/wisdomhouse";
 import {
   getRisingBooks,
@@ -41,6 +41,23 @@ function formatDateTime(iso) {
 // 날짜 단위로만 판단하는 단순한 방식입니다).
 function endOfDayISO(dateStr) {
   return new Date(`${dateStr}T23:59:59.999Z`).toISOString();
+}
+
+// 브라우저의 현재 로컬 날짜/시각을 <input type="date">, <input
+// type="datetime-local"> 값 형식(YYYY-MM-DD, YYYY-MM-DDTHH:mm)으로
+// 반환합니다. 서버 렌더링 시점과 클라이언트 하이드레이션 시점의 값이
+// 다를 수 있어(hydration mismatch) useEffect 안에서 마운트 후에만
+// 호출합니다 - 초기 렌더링에서는 절대 쓰지 않습니다.
+function todayLocalDateStr() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+function todayLocalDateTimeStr() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${todayLocalDateStr()}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
 // lib/trends.js가 이미 계산해 둔 결과(rising/newEntries/trend6h/
@@ -240,10 +257,12 @@ export default function Dashboard({
   const [onlyWisdom, setOnlyWisdom] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(TOTAL_CATEGORY);
 
-  // 과거 기록 조회 상태. historyStoreData가 null이 아니면(=historyMode)
-  // 실시간 조회 대신 /api/history로 받아온 스냅샷을 화면에 표시합니다.
-  // 날짜/시간 입력값은 종합·분야별(date)과 실시간(datetime-local)이
-  // 서로 다른 입력 형식을 쓰므로 따로 관리합니다.
+  // 날짜 조회 상태. historyStoreData가 null이 아니면(=historyMode) 서버
+  // props(storeData/categoryData/realtimeData) 대신 /api/history로 받아온
+  // 스냅샷을 화면에 표시합니다. 날짜 입력값은 종합·분야별(date)과
+  // 실시간(datetime-local)이 서로 다른 입력 형식을 쓰므로 따로 관리하고,
+  // 둘 다 초기값은 빈 문자열(서버 렌더링과 동일하게 유지 - hydration
+  // mismatch 방지)로 시작해 마운트 후 useEffect에서만 "오늘"로 채웁니다.
   const [historyDate, setHistoryDate] = useState("");
   const [historyDateTime, setHistoryDateTime] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -260,6 +279,20 @@ export default function Dashboard({
   const isRealtime = selectedCategory === REALTIME_TAB;
   const historyMode = historyStoreData !== null;
 
+  // 현재 탭에서 실제로 쓰이는 날짜 입력값 하나. 이 값이 바뀌거나(날짜
+  // 선택) 탭/분야가 바뀌면 아래 useEffect가 자동으로 다시 조회합니다 -
+  // 더 이상 "조회" 버튼을 누를 필요가 없습니다. 아직(마운트 직후 짧은
+  // 순간) 비어있으면 오늘 날짜가 채워지기 전이라는 뜻입니다.
+  const currentDateValue = isRealtime ? historyDateTime : historyDate;
+  // 선택한 날짜가 "오늘"이 아니면 과거 시점을 보고 있는 것으로 판단합니다
+  // (날짜 부분만 비교 - 실시간 tab은 시:분까지 고르지만 배너/트렌드 숨김
+  // 여부는 날짜 단위로만 구분합니다). currentDateValue가 빈 문자열인
+  // 마운트 직전에는 todayLocalDateStr()를 아예 호출하지 않으므로(단락
+  // 평가) 서버 렌더링 결과와 항상 동일합니다.
+  const isPastSelection =
+    currentDateValue !== "" &&
+    currentDateValue.slice(0, 10) !== todayLocalDateStr().slice(0, 10);
+
   function exitHistoryMode() {
     setHistoryStoreData(null);
     setHistoryErrors({});
@@ -272,20 +305,29 @@ export default function Dashboard({
     exitHistoryMode();
   }
 
+  // 마운트 후 클라이언트에서만 오늘 날짜/시각으로 채웁니다(서버 렌더링
+  // 시점에는 절대 실행되지 않으므로 hydration mismatch가 없습니다).
+  useEffect(() => {
+    setHistoryDate(todayLocalDateStr());
+    setHistoryDateTime(todayLocalDateTimeStr());
+  }, []);
+
+  // 날짜 입력값이 바뀌거나(오늘로 되돌리는 경우 포함) 탭/분야가 바뀔
+  // 때마다 자동으로 다시 조회합니다. 별도의 "조회" 버튼은 없습니다.
+  useEffect(() => {
+    if (!currentDateValue) return; // 마운트 직후 아직 오늘 날짜가 안 채워진 순간
+    fetchHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDateValue, isTotal, isRealtime, selectedCategory]);
+
   async function fetchHistory() {
     const params = new URLSearchParams();
     if (isRealtime) {
-      if (!historyDateTime) {
-        setHistoryFetchError("조회할 날짜와 시간을 선택해주세요.");
-        return;
-      }
+      if (!historyDateTime) return;
       params.set("scope", "realtime");
       params.set("at", new Date(historyDateTime).toISOString());
     } else {
-      if (!historyDate) {
-        setHistoryFetchError("조회할 날짜를 선택해주세요.");
-        return;
-      }
+      if (!historyDate) return;
       params.set("scope", isTotal ? "total" : "category");
       if (!isTotal) params.set("category", selectedCategory);
       params.set("at", endOfDayISO(historyDate));
@@ -528,20 +570,17 @@ export default function Dashboard({
               onChange={(e) => setHistoryDate(e.target.value)}
             />
           )}
-          <button onClick={fetchHistory} disabled={historyLoading}>
-            {historyLoading ? "조회 중..." : "이 시점 조회"}
-          </button>
-          {historyMode && (
-            <button onClick={exitHistoryMode}>실시간으로 돌아가기</button>
+          {historyLoading && (
+            <span className="history-loading">불러오는 중...</span>
           )}
         </div>
         {historyFetchError && (
           <div className="history-error">{historyFetchError}</div>
         )}
-        {historyMode && (
+        {isPastSelection && (
           <div className="history-banner">
-            📅 과거 기록 조회 중 — 선택한 시점 이전 가장 최근 스냅샷을
-            보여줍니다. 실시간 반영이 아닙니다.
+            📅 과거 기록 조회 중 — 선택한 날짜 이전 가장 최근 스냅샷을
+            보여줍니다. 오늘 날짜로 되돌리면 최신 데이터로 돌아옵니다.
           </div>
         )}
       </div>
@@ -554,7 +593,7 @@ export default function Dashboard({
         </div>
       )}
 
-      <div className="columns">
+      <div className={`columns${historyLoading ? " loading" : ""}`}>
         {bookstores.map((bookstore) => (
           <BookColumn
             key={bookstore}
@@ -570,7 +609,7 @@ export default function Dashboard({
         ))}
       </div>
 
-      {isTotal && !historyMode && (
+      {isTotal && !isPastSelection && (
       <div className="trend-section">
         <h2>트렌드 분석 (TOP100 전체 기준)</h2>
         <div className="trend-grid">
@@ -744,7 +783,7 @@ export default function Dashboard({
       </div>
       )}
 
-      {!isRealtime && !historyMode && (
+      {!isRealtime && !isPastSelection && (
       <div className="insight-section">
         <h2>트렌드 키워드</h2>
         {trendKeywords.length === 0 ? (
@@ -778,7 +817,7 @@ export default function Dashboard({
       </div>
       )}
 
-      {isRealtime && !historyMode && (
+      {isRealtime && !isPastSelection && (
       <div className="realtime-insight-section">
         <h2>실시간 트렌드</h2>
         <div className="realtime-insight-stack">
