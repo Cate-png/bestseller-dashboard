@@ -73,6 +73,10 @@ body {
   border-color: #2d4a3e;
 }
 
+/* 검색창 + 날짜/시간 선택 + 위즈덤하우스 필터 + 초기화를 한 줄에 배치합니다
+   (데스크톱). 검색창만 남은 공간을 나눠 갖고(flex: 1 1 ...), 날짜/시간
+   입력과 버튼들은 내용 크기만큼만 차지해(flex: 0 0 auto) 한 줄에 다
+   들어갑니다. */
 .controls {
   display: flex;
   gap: 8px;
@@ -81,16 +85,28 @@ body {
   flex-wrap: wrap;
 }
 
-.controls input[type="text"] {
-  flex: 1;
-  min-width: 240px;
+.controls .search-input {
+  flex: 1 1 220px;
+  min-width: 160px;
+  max-width: 320px;
   padding: 8px 12px;
   border: 1px solid #ccc;
   border-radius: 6px;
   font-size: 14px;
 }
 
+.controls .date-input,
+.controls .hour-select {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+}
+
 .controls button {
+  flex: 0 0 auto;
   padding: 8px 14px;
   border: 1px solid #ccc;
   border-radius: 6px;
@@ -103,21 +119,6 @@ body {
   background: #2d4a3e;
   color: #fff;
   border-color: #2d4a3e;
-}
-
-.history-controls {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 8px;
-  flex-wrap: wrap;
-}
-
-.history-controls input {
-  padding: 7px 10px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  font-size: 13px;
 }
 
 .history-loading {
@@ -712,8 +713,11 @@ body {
     gap: 6px;
   }
 
-  .controls input[type="text"] {
+  .controls .search-input,
+  .controls .date-input,
+  .controls .hour-select {
     width: 100%;
+    max-width: none;
     min-width: 0;
     font-size: 14px;
   }
@@ -721,10 +725,6 @@ body {
   .controls button {
     width: 100%;
     padding: 9px 12px;
-  }
-
-  .history-controls input {
-    width: 100%;
   }
 
   .columns {

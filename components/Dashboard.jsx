@@ -43,21 +43,30 @@ function endOfDayISO(dateStr) {
   return new Date(`${dateStr}T23:59:59.999Z`).toISOString();
 }
 
-// 브라우저의 현재 로컬 날짜/시각을 <input type="date">, <input
-// type="datetime-local"> 값 형식(YYYY-MM-DD, YYYY-MM-DDTHH:mm)으로
-// 반환합니다. 서버 렌더링 시점과 클라이언트 하이드레이션 시점의 값이
-// 다를 수 있어(hydration mismatch) useEffect 안에서 마운트 후에만
-// 호출합니다 - 초기 렌더링에서는 절대 쓰지 않습니다.
+// 날짜 + 시(0~23, "00"~"23")를 "그 시간대의 마지막 순간(UTC HH:59:59.999)"의
+// ISO 문자열로 바꿉니다. 실시간 수집은 매시 정각에 트리거되지만 실제 저장
+// 시각은 몇 분씩 밀릴 수 있어(예: 14시 수집이 14:03에 완료), 상한을 정확히
+// "HH:00:00"으로 두면 그 시간대 스냅샷을 놓치고 한 시간 전으로 밀려날 수
+// 있습니다. endOfDayISO와 동일한 방식(정확한 타임존 보정 없이 시 단위로만
+// 판단)으로 그 시간의 끝을 상한으로 써서, api/history의 "이 시각 이전 가장
+// 최근 스냅샷" 조회가 사용자가 고른 시(H)의 스냅샷을 정확히 찾게 합니다.
+function endOfHourISO(dateStr, hourStr) {
+  return new Date(`${dateStr}T${hourStr}:59:59.999Z`).toISOString();
+}
+
+// 브라우저의 현재 로컬 날짜/시를 <input type="date"> 값 형식(YYYY-MM-DD)과
+// 시 선택 드롭다운 값 형식("00"~"23")으로 각각 반환합니다. 서버 렌더링
+// 시점과 클라이언트 하이드레이션 시점의 값이 다를 수 있어(hydration
+// mismatch) useEffect 안에서 마운트 후에만 호출합니다 - 초기 렌더링에서는
+// 절대 쓰지 않습니다.
 function todayLocalDateStr() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-function todayLocalDateTimeStr() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${todayLocalDateStr()}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+function todayLocalHourStr() {
+  return String(new Date().getHours()).padStart(2, "0");
 }
 
 // lib/trends.js가 이미 계산해 둔 결과(rising/newEntries/trend6h/
@@ -259,12 +268,15 @@ export default function Dashboard({
 
   // 날짜 조회 상태. historyStoreData가 null이 아니면(=historyMode) 서버
   // props(storeData/categoryData/realtimeData) 대신 /api/history로 받아온
-  // 스냅샷을 화면에 표시합니다. 날짜 입력값은 종합·분야별(date)과
-  // 실시간(datetime-local)이 서로 다른 입력 형식을 쓰므로 따로 관리하고,
-  // 둘 다 초기값은 빈 문자열(서버 렌더링과 동일하게 유지 - hydration
-  // mismatch 방지)로 시작해 마운트 후 useEffect에서만 "오늘"로 채웁니다.
+  // 스냅샷을 화면에 표시합니다. 종합·분야별은 날짜(historyDate) 하나만
+  // 쓰고, 실시간은 날짜(historyRealtimeDate)와 시(historyRealtimeHour,
+  // "00"~"23")를 따로 관리합니다 - 실시간 수집이 1시간에 1번만 이뤄지는
+  // 데이터 구조와 맞춰 분 단위 선택은 아예 없습니다. 셋 다 초기값은 빈
+  // 문자열(서버 렌더링과 동일하게 유지 - hydration mismatch 방지)로
+  // 시작해 마운트 후 useEffect에서만 "오늘/지금"으로 채웁니다.
   const [historyDate, setHistoryDate] = useState("");
-  const [historyDateTime, setHistoryDateTime] = useState("");
+  const [historyRealtimeDate, setHistoryRealtimeDate] = useState("");
+  const [historyRealtimeHour, setHistoryRealtimeHour] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFetchError, setHistoryFetchError] = useState(null);
   const [historyStoreData, setHistoryStoreData] = useState(null);
@@ -288,19 +300,30 @@ export default function Dashboard({
   const isRealtime = selectedCategory === REALTIME_TAB;
   const historyMode = historyStoreData !== null;
 
-  // 현재 탭에서 실제로 쓰이는 날짜 입력값 하나. 이 값이 바뀌거나(날짜
-  // 선택) 탭/분야가 바뀌면 아래 useEffect가 자동으로 다시 조회합니다 -
-  // 더 이상 "조회" 버튼을 누를 필요가 없습니다. 아직(마운트 직후 짧은
-  // 순간) 비어있으면 오늘 날짜가 채워지기 전이라는 뜻입니다.
-  const currentDateValue = isRealtime ? historyDateTime : historyDate;
-  // 선택한 날짜가 "오늘"이 아니면 과거 시점을 보고 있는 것으로 판단합니다
-  // (날짜 부분만 비교 - 실시간 tab은 시:분까지 고르지만 배너/트렌드 숨김
-  // 여부는 날짜 단위로만 구분합니다). currentDateValue가 빈 문자열인
-  // 마운트 직전에는 todayLocalDateStr()를 아예 호출하지 않으므로(단락
-  // 평가) 서버 렌더링 결과와 항상 동일합니다.
-  const isPastSelection =
-    currentDateValue !== "" &&
-    currentDateValue.slice(0, 10) !== todayLocalDateStr().slice(0, 10);
+  // 현재 탭에서 실제로 쓰이는 날짜(+시) 입력값 하나. 실시간 탭은
+  // "YYYY-MM-DDTHH" 형식(분 없음)으로 합쳐서 씁니다. 이 값이 바뀌거나
+  // (날짜/시 선택) 탭/분야가 바뀌면 아래 useEffect가 자동으로 다시
+  // 조회합니다 - 더 이상 "조회" 버튼을 누를 필요가 없습니다. 아직(마운트
+  // 직후 짧은 순간) 비어있으면 오늘 날짜(/지금 시)가 채워지기 전이라는
+  // 뜻입니다.
+  const currentDateValue = isRealtime
+    ? historyRealtimeDate && historyRealtimeHour
+      ? `${historyRealtimeDate}T${historyRealtimeHour}`
+      : ""
+    : historyDate;
+  // 선택한 시점이 "지금"이 아니면 과거 시점을 보고 있는 것으로 판단합니다.
+  // 종합/분야 탭은 날짜 단위로만 비교하고, 실시간 탭은 시 단위까지 비교합니다
+  // (분 선택 UI를 없앤 만큼, 오늘 날짜에서 다른 시를 고르는 것도 명백히
+  // "다른 시점을 본다"는 의도이므로 이땐 재조회가 필요합니다 - 날짜만
+  // 비교하면 같은 날 안에서 시를 바꿔도 재조회를 건너뛰고 "지금" 데이터를
+  // 그대로 보여주는 오류가 생깁니다). currentDateValue가 빈 문자열인
+  // 마운트 직전에는 todayLocalDateStr()/todayLocalHourStr()를 아예
+  // 호출하지 않으므로(단락 평가) 서버 렌더링 결과와 항상 동일합니다.
+  const isPastSelection = isRealtime
+    ? currentDateValue !== "" &&
+      currentDateValue !== `${todayLocalDateStr()}T${todayLocalHourStr()}`
+    : currentDateValue !== "" &&
+      currentDateValue.slice(0, 10) !== todayLocalDateStr().slice(0, 10);
 
   function exitHistoryMode() {
     setHistoryStoreData(null);
@@ -314,11 +337,12 @@ export default function Dashboard({
     exitHistoryMode();
   }
 
-  // 마운트 후 클라이언트에서만 오늘 날짜/시각으로 채웁니다(서버 렌더링
+  // 마운트 후 클라이언트에서만 오늘 날짜/지금 시로 채웁니다(서버 렌더링
   // 시점에는 절대 실행되지 않으므로 hydration mismatch가 없습니다).
   useEffect(() => {
     setHistoryDate(todayLocalDateStr());
-    setHistoryDateTime(todayLocalDateTimeStr());
+    setHistoryRealtimeDate(todayLocalDateStr());
+    setHistoryRealtimeHour(todayLocalHourStr());
   }, []);
 
   // 날짜 입력값이 바뀌거나(오늘로 되돌리는 경우 포함) 탭/분야가 바뀔
@@ -409,9 +433,9 @@ export default function Dashboard({
   async function fetchHistory() {
     const params = new URLSearchParams();
     if (isRealtime) {
-      if (!historyDateTime) return;
+      if (!historyRealtimeDate || !historyRealtimeHour) return;
       params.set("scope", "realtime");
-      params.set("at", new Date(historyDateTime).toISOString());
+      params.set("at", endOfHourISO(historyRealtimeDate, historyRealtimeHour));
     } else {
       if (!historyDate) return;
       params.set("scope", isTotal ? "total" : "category");
@@ -647,10 +671,43 @@ export default function Dashboard({
         <div className="controls">
           <input
             type="text"
+            className="search-input"
             placeholder="도서명 / 저자 / 출판사 / ISBN13 검색"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          {isRealtime ? (
+            <>
+              <input
+                type="date"
+                className="date-input"
+                value={historyRealtimeDate}
+                onChange={(e) => setHistoryRealtimeDate(e.target.value)}
+              />
+              <select
+                className="hour-select"
+                value={historyRealtimeHour}
+                onChange={(e) => setHistoryRealtimeHour(e.target.value)}
+                aria-label="조회 시각(시)"
+              >
+                {Array.from({ length: 24 }, (_, hour) => {
+                  const hh = String(hour).padStart(2, "0");
+                  return (
+                    <option key={hh} value={hh}>
+                      {hh}시
+                    </option>
+                  );
+                })}
+              </select>
+            </>
+          ) : (
+            <input
+              type="date"
+              className="date-input"
+              value={historyDate}
+              onChange={(e) => setHistoryDate(e.target.value)}
+            />
+          )}
           <button
             className={onlyWisdom ? "active" : ""}
             onClick={() => setOnlyWisdom((v) => !v)}
@@ -667,22 +724,6 @@ export default function Dashboard({
               초기화
             </button>
           )}
-        </div>
-
-        <div className="history-controls">
-          {isRealtime ? (
-            <input
-              type="datetime-local"
-              value={historyDateTime}
-              onChange={(e) => setHistoryDateTime(e.target.value)}
-            />
-          ) : (
-            <input
-              type="date"
-              value={historyDate}
-              onChange={(e) => setHistoryDate(e.target.value)}
-            />
-          )}
           {historyLoading && (
             <span className="history-loading">불러오는 중...</span>
           )}
@@ -692,8 +733,8 @@ export default function Dashboard({
         )}
         {isPastSelection && (
           <div className="history-banner">
-            📅 과거 기록 조회 중 — 선택한 날짜 이전 가장 최근 스냅샷을
-            보여줍니다. 오늘 날짜로 되돌리면 최신 데이터로 돌아옵니다.
+            📅 과거 기록 조회 중 — 선택한 시점 이전 가장 최근 스냅샷을
+            보여줍니다. 오늘(지금)로 되돌리면 최신 데이터로 돌아옵니다.
           </div>
         )}
       </div>
