@@ -119,7 +119,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install playwright beautifulsoup4
           playwright install chromium
 
       - name: Diagnose known non-book item classification fields via search (read-only, no Supabase writes)
