@@ -15,11 +15,17 @@ test_save_yes24.py / test_save_yes24_category.py는 전혀 수정하지 않습�
 
 diagnose_realtime.py로 실제로 확인한 내용:
 - 도서 항목은 div.itemUnit 단위로 나오고(이 categoryNumber=001 페이지에서
-  100건), 각 항목의 span.gd_res 값이 '[도서]'로 도서 여부를 표시합니다.
+  100건), 각 항목의 span.gd_res 값으로 분류가 표시됩니다.
   (처음엔 'eBook19,800원' 같은 링크가 별도 순위 항목처럼 보였지만, 실제로는
-  종이책 itemUnit 안에 들어있는 "eBook로 구매" 보조 버튼 링크였을 뿐, 실제로
-  gd_res가 '[도서]'가 아닌 항목은 발견되지 않았습니다. 그래도 안전장치로
-  gd_res != '[도서]'인 항목은 걸러냅니다.)
+  종이책 itemUnit 안에 들어있는 "eBook로 구매" 보조 버튼 링크였을 뿐이었음)
+
+- [중요, 추가 조사] gd_res != '[도서]'면 전부 걸러내던 기존 필터가 만화
+  분야 데이터를 통째로 누락시키고 있었습니다. 실제 페이지(100건)를 직접
+  파싱해 gd_res 값 분포를 확인한 결과 '[도서]' 87건, '[만화]' 10건,
+  '[잡지]' 3건으로 나뉘어 있었습니다. '[만화]'도 이 실시간베스트 목록에
+  함께 랭크되는 정상적인 국내도서 카테고리 항목(만화책)이므로
+  BOOK_GD_RES_VALUES에 포함시켰습니다. '[잡지]'는 정기간행물이라 기존과
+  동일하게 계속 제외합니다.
 - 저자(span.info_auth)/출판사(span.info_pub)는 목록 페이지 안에 이미 들어
   있어 별도 상세페이지 방문 없이 바로 가져올 수 있습니다.
 - ISBN13은 목록 페이지엔 없고, 상품 상세페이지의
@@ -70,6 +76,10 @@ USER_AGENT = (
 
 RANK_PATTERN = re.compile(r"\d+")
 
+# 실측(diagnose_realtime.py, gd_res 값 분포 확인)으로 확인된, 도서로 인정할
+# span.gd_res 값. '[잡지]'는 정기간행물이라 제외합니다.
+BOOK_GD_RES_VALUES = {"[도서]", "[만화]"}
+
 
 def load_realtime_list(page):
     page.goto(LIST_URL, timeout=30000)
@@ -82,10 +92,10 @@ def load_realtime_list(page):
     for unit in soup.select("div.itemUnit")[:TARGET_COUNT]:
         gd_res = unit.select_one("span.gd_res")
         gd_res_text = gd_res.get_text(strip=True) if gd_res else ""
-        if gd_res_text != "[도서]":
-            # diagnose_realtime.py에서 실측 확인된 도서 판별 마커. 확인된
-            # 범위에서는 전부 '[도서]'였지만, 혹시 다른 값(eBook 등 다른
-            # 포맷)이 나오면 도서가 아닌 것으로 보고 건너뜁니다.
+        if gd_res_text not in BOOK_GD_RES_VALUES:
+            # '[도서]'만 인정하던 기존 필터가 '[만화]'(만화책)까지 걸러내고
+            # 있었음을 실측으로 확인해 BOOK_GD_RES_VALUES에 추가했습니다.
+            # '[잡지]' 등 그 외 값은 도서가 아닌 것으로 보고 계속 건너뜁니다.
             continue
 
         rank_tag = unit.select_one("em.ico.rank")
