@@ -105,7 +105,10 @@ function BookRow({ row, highlightSurge }) {
   );
 }
 
-function BookColumn({ bookstore, rows, error, query, onlyWisdom }) {
+// highlightSurge: 실시간 탭에서 BookColumn을 렌더링할 때만 true로 넘겨,
+// 20위 이상 급상승 도서를 BookRow에서 강조 표시하게 합니다. 종합/분야별
+// 탭은 이 prop을 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
+function BookColumn({ bookstore, rows, error, query, onlyWisdom, highlightSurge }) {
   const visibleRows = rows.filter(
     (r) => matchesSearch(r, query) && (!onlyWisdom || isWisdomHouse(r.publisher))
   );
@@ -128,51 +131,13 @@ function BookColumn({ bookstore, rows, error, query, onlyWisdom }) {
           </div>
         )}
         {visibleRows.map((row) => (
-          <BookRow key={`${bookstore}-${row.rank}`} row={row} />
+          <BookRow
+            key={`${bookstore}-${row.rank}`}
+            row={row}
+            highlightSurge={highlightSurge}
+          />
         ))}
       </div>
-    </div>
-  );
-}
-
-// 실시간 베스트셀러 탭 전용: 서점별로 접었다 펼 수 있는 아코디언 섹션.
-// BookColumn과 표시 내용(BookRow)은 동일하지만, 헤더를 눌러 열고 닫을 수 있습니다.
-function RealtimeAccordionSection({ bookstore, rows, error, query, onlyWisdom, open, onToggle }) {
-  const visibleRows = rows.filter(
-    (r) => matchesSearch(r, query) && (!onlyWisdom || isWisdomHouse(r.publisher))
-  );
-
-  return (
-    <div className={`realtime-section${open ? "" : " collapsed"}`}>
-      <button
-        type="button"
-        className={`realtime-section-header ${COLUMN_CLASS[bookstore] || ""}`}
-        onClick={onToggle}
-        aria-expanded={open}
-      >
-        <span>
-          {bookstore}{" "}
-          <span className="column-count">
-            ({visibleRows.length}/{rows.length})
-          </span>
-        </span>
-        <span className="realtime-toggle-icon">▾</span>
-      </button>
-      {open && (
-        <div className="book-list">
-          {error && rows.length === 0 && (
-            <div style={{ padding: 12, fontSize: 13, color: "#a00" }}>{error}</div>
-          )}
-          {rows.length > 0 && visibleRows.length === 0 && (
-            <div style={{ padding: 12, fontSize: 13, color: "#999" }}>
-              조건에 맞는 도서가 없습니다.
-            </div>
-          )}
-          {visibleRows.map((row) => (
-            <BookRow key={`${bookstore}-realtime-${row.rank}`} row={row} highlightSurge />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -205,12 +170,6 @@ export default function Dashboard({
   const [query, setQuery] = useState("");
   const [onlyWisdom, setOnlyWisdom] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(TOTAL_CATEGORY);
-  const [realtimeOpen, setRealtimeOpen] = useState(() =>
-    Object.fromEntries(bookstores.map((b) => [b, true]))
-  );
-
-  const toggleRealtimeOpen = (bookstore) =>
-    setRealtimeOpen((prev) => ({ ...prev, [bookstore]: !prev[bookstore] }));
 
   const tabs = useMemo(
     () => [TOTAL_CATEGORY, ...categories, REALTIME_TAB],
@@ -380,35 +339,19 @@ export default function Dashboard({
         </div>
       )}
 
-      {isRealtime ? (
-        <div className="realtime-accordion">
-          {bookstores.map((bookstore) => (
-            <RealtimeAccordionSection
-              key={bookstore}
-              bookstore={bookstore}
-              rows={activeStoreData[bookstore] || []}
-              error={activeErrors[bookstore]}
-              query={query}
-              onlyWisdom={onlyWisdom}
-              open={realtimeOpen[bookstore] !== false}
-              onToggle={() => toggleRealtimeOpen(bookstore)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="columns">
-          {bookstores.map((bookstore) => (
-            <BookColumn
-              key={bookstore}
-              bookstore={bookstore}
-              rows={activeStoreData[bookstore] || []}
-              error={activeErrors[bookstore]}
-              query={query}
-              onlyWisdom={onlyWisdom}
-            />
-          ))}
-        </div>
-      )}
+      <div className="columns">
+        {bookstores.map((bookstore) => (
+          <BookColumn
+            key={bookstore}
+            bookstore={bookstore}
+            rows={activeStoreData[bookstore] || []}
+            error={activeErrors[bookstore]}
+            query={query}
+            onlyWisdom={onlyWisdom}
+            highlightSurge={isRealtime}
+          />
+        ))}
+      </div>
 
       {isTotal && (
       <div className="trend-section">
