@@ -18,6 +18,7 @@ import {
   getRealtimeSurgingBooks,
   getRealtimeSimultaneousRise,
 } from "../lib/realtimeInsights";
+import RankHistoryChart from "./RankHistoryChart";
 
 const COLUMN_CLASS = {
   교보문고: "kyobo",
@@ -83,7 +84,11 @@ function RankChange({ rankChange, matchStatus }) {
 // 실시간 탭에서만 20위 이상 급상승(rank_change >= 20) 도서의 제목을
 // 볼드 처리하고 🔥를 붙여 표시하기 위한 플래그. 다른 탭(종합/분야별)에는
 // highlightSurge를 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
-function BookRow({ row, highlightSurge }) {
+//
+// onShowHistory: isbn13이 있는 행에만 "순위 변화" 버튼을 보여주고, 누르면
+// (isbn13, title)로 호출합니다. isbn13이 없는(match_status="no_isbn") 행은
+// 과거 이력을 추적할 수 없으므로 버튼 자체를 표시하지 않습니다.
+function BookRow({ row, highlightSurge, onShowHistory }) {
   const wisdom = isWisdomHouse(row.publisher);
   const isSurge =
     highlightSurge && typeof row.rank_change === "number" && row.rank_change >= 20;
@@ -116,6 +121,17 @@ function BookRow({ row, highlightSurge }) {
           {row.author || "저자 미상"} · {row.publisher || "출판사 미상"}
         </div>
       </div>
+      {row.isbn13 && onShowHistory && (
+        <button
+          type="button"
+          className="rank-history-button"
+          title="순위 변화 보기"
+          aria-label="순위 변화 보기"
+          onClick={() => onShowHistory(row.isbn13, row.title)}
+        >
+          📈
+        </button>
+      )}
       <RankChange rankChange={row.rank_change} matchStatus={row.match_status} />
     </div>
   );
@@ -138,6 +154,7 @@ function BookColumn({
   onlyWisdom,
   highlightSurge,
   collapsible,
+  onShowHistory,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const visibleRows = rows.filter(
@@ -186,6 +203,7 @@ function BookColumn({
             key={`${bookstore}-${row.rank}`}
             row={row}
             highlightSurge={highlightSurge}
+            onShowHistory={onShowHistory}
           />
         ))}
       </div>
@@ -287,6 +305,47 @@ export default function Dashboard({
     } finally {
       setHistoryLoading(false);
     }
+  }
+
+  // 도서별 순위 변화 차트 상태. 현재 보고 있는 탭(종합/분야별/실시간)과
+  // 동일한 스코프로 /api/book-history를 호출합니다 - 예를 들어 "소설"
+  // 분야 목록에서 연 책은 "소설" 분야 TOP10 안에서의 순위 이력을 보여주고,
+  // 실시간 탭에서 연 책은 실시간 순위 이력을 보여줍니다.
+  const [chartBook, setChartBook] = useState(null); // { isbn13, title }
+  const [chartData, setChartData] = useState(null);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState(null);
+
+  async function openRankHistory(isbn13, title) {
+    setChartBook({ isbn13, title });
+    setChartData(null);
+    setChartError(null);
+    setChartLoading(true);
+    try {
+      const params = new URLSearchParams({ isbn13 });
+      if (isRealtime) {
+        params.set("scope", "realtime");
+      } else if (isTotal) {
+        params.set("scope", "total");
+      } else {
+        params.set("scope", "category");
+        params.set("category", selectedCategory);
+      }
+      const res = await fetch(`/api/book-history?${params.toString()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "조회에 실패했습니다.");
+      setChartData(json);
+    } catch (e) {
+      setChartError(String(e.message || e));
+    } finally {
+      setChartLoading(false);
+    }
+  }
+
+  function closeRankHistory() {
+    setChartBook(null);
+    setChartData(null);
+    setChartError(null);
   }
 
   const activeStoreData = historyMode
@@ -506,6 +565,7 @@ export default function Dashboard({
             onlyWisdom={onlyWisdom}
             highlightSurge={isRealtime}
             collapsible
+            onShowHistory={openRankHistory}
           />
         ))}
       </div>
@@ -789,6 +849,39 @@ export default function Dashboard({
 
         </div>
       </div>
+      )}
+
+      {chartBook && (
+        <div className="chart-modal-backdrop" onClick={closeRankHistory}>
+          <div
+            className="chart-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${chartBook.title} 순위 변화`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="chart-modal-header">
+              <h3>{chartBook.title}</h3>
+              <button
+                type="button"
+                className="chart-modal-close"
+                onClick={closeRankHistory}
+                aria-label="닫기"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="chart-modal-scope">
+              {isRealtime ? "실시간 베스트셀러" : isTotal ? "종합" : selectedCategory}{" "}
+              기준 순위 변화
+            </div>
+            {chartLoading && <p className="trend-empty">불러오는 중...</p>}
+            {chartError && <p className="history-error">{chartError}</p>}
+            {chartData && (
+              <RankHistoryChart series={chartData.series} bookstores={bookstores} />
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
