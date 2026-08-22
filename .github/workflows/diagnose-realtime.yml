@@ -86,3 +86,22 @@ jobs:
 
       - name: Diagnose Kyobo realtime page pagination (read-only, no Supabase writes)
         run: python diagnose_kyobo_realtime_api.py
+
+  diagnose-kyobo-realtime-bookonly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install playwright supabase
+          playwright install chromium
+
+      - name: Diagnose Kyobo realtime book-only classification fields (read-only, no Supabase writes)
+        run: python diagnose_kyobo_realtime_bookonly.py
