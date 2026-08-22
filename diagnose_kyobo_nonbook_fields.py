@@ -85,6 +85,24 @@ def find_items_with_code(obj, target_code, found, path="root"):
             find_items_with_code(v, target_code, found, f"{path}[{i}]")
 
 
+def find_items_with_name_substr(obj, name_substr, found, path="root", max_found=5):
+    """cmdtCode 필드명이 다를 수 있으므로, 대신 dict 안의 어떤 문자열 값이든
+    name_substr을 포함하면 그 dict 전체를 찾아낸다(필드명을 추측하지 않기
+    위한 보강)."""
+    if len(found) >= max_found:
+        return
+    if isinstance(obj, dict):
+        for v in obj.values():
+            if isinstance(v, str) and name_substr in v:
+                found.append((path, obj))
+                break
+        for k, v in obj.items():
+            find_items_with_name_substr(v, name_substr, found, f"{path}.{k}", max_found)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj[:50]):
+            find_items_with_name_substr(v, name_substr, found, f"{path}[{i}]", max_found)
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -113,21 +131,23 @@ def main():
                     )
             else:
                 print("  정확히 cmdtCode가 일치하는 항목을 못 찾음. "
-                      "캡처된 응답 중 상품 목록으로 보이는 배열의 첫 항목들을 대신 출력:")
+                      "필드명이 다를 수 있으므로 이름 일부(첫 단어)로도 찾아본다:")
+                name_kw = name.split()[0]
+                name_found = []
                 for url, body in captured:
-                    if not isinstance(body, dict):
-                        continue
-                    data = body.get("data")
-                    if isinstance(data, dict):
-                        for k, v in data.items():
-                            if isinstance(v, list) and v and isinstance(v[0], dict) and "cmdtName" in v[0]:
-                                print(f"\n  {url}  (data.{k}, {len(v)}건)")
-                                for it in v[:3]:
-                                    print(
-                                        f"    cmdtName={it.get('cmdtName')!r} cmdtCode={it.get('cmdtCode')!r} "
-                                        f"saleCmdtClstName={it.get('saleCmdtClstName')!r} "
-                                        f"saleCmdtDvsnCode={it.get('saleCmdtDvsnCode')!r}"
-                                    )
+                    find_items_with_name_substr(body, name_kw, name_found)
+                if name_found:
+                    for path, item in name_found:
+                        print(f"\n  [이름 일치: {name_kw!r}] {path}")
+                        print(f"    전체 필드: {json.dumps(item, ensure_ascii=False)[:1500]}")
+                else:
+                    print(
+                        "  이름으로도 못 찾음. 캡처된 응답의 최상위 구조를 그대로 덤프"
+                        "(스키마 확인용, 최대 2개 응답):"
+                    )
+                    for url, body in captured[:2]:
+                        print(f"\n  URL: {url}")
+                        print(f"  {json.dumps(body, ensure_ascii=False)[:2000]}")
 
         browser.close()
 
