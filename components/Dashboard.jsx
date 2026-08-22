@@ -15,6 +15,12 @@ import {
   extractTrendKeywords,
   extractNotableFlows,
 } from "../lib/insights";
+import {
+  getRealtimeSurgingBooks,
+  getRealtimeSimultaneousRise,
+  getRealtimeNewEntries,
+  getRealtimeSurgeAggregates,
+} from "../lib/realtimeInsights";
 
 const COLUMN_CLASS = {
   교보문고: "kyobo",
@@ -274,6 +280,39 @@ export default function Dashboard({
     [activeUniqueBooks]
   );
 
+  // 실시간 탭 전용 인사이트: realtimeData만 사용하고(rankings/categoryData와
+  // 섞지 않음), storeData 기반 allRows와는 완전히 별개의 배열입니다.
+  const realtimeAllRows = useMemo(() => {
+    const merged = [];
+    for (const bookstore of bookstores) {
+      for (const row of realtimeData[bookstore] || []) {
+        merged.push({ ...row, bookstore });
+      }
+    }
+    return merged;
+  }, [bookstores, realtimeData]);
+
+  const realtimeSurging = useMemo(
+    () => getRealtimeSurgingBooks(realtimeAllRows, 5),
+    [realtimeAllRows]
+  );
+  const realtimeSimultaneousRise = useMemo(
+    () => getRealtimeSimultaneousRise(realtimeAllRows, 2, 5),
+    [realtimeAllRows]
+  );
+  const realtimeNewEntries = useMemo(
+    () => getRealtimeNewEntries(realtimeAllRows, 5),
+    [realtimeAllRows]
+  );
+  const realtimeSurgeAggregates = useMemo(
+    () => getRealtimeSurgeAggregates(realtimeAllRows),
+    [realtimeAllRows]
+  );
+  const realtimeSurgeKeywords = useMemo(
+    () => extractTrendKeywords(realtimeSurgeAggregates.surgeRows, 5),
+    [realtimeSurgeAggregates]
+  );
+
   return (
     <div className="page-shell">
       <div className="header">
@@ -505,6 +544,137 @@ export default function Dashboard({
             ))}
           </ul>
         )}
+      </div>
+      )}
+
+      {isRealtime && (
+      <div className="realtime-insight-section">
+        <h2>실시간 트렌드</h2>
+        <div className="realtime-insight-grid">
+          <div className="realtime-insight-card">
+            <h3>🔥 지금 치고 올라오는 책</h3>
+            {realtimeSurging.length === 0 ? (
+              <p className="trend-empty">아직 20위 이상 상승한 도서가 없습니다.</p>
+            ) : (
+              <ul>
+                {realtimeSurging.map((r) => (
+                  <li key={`${r.bookstore}-${r.isbn13 || r.title}-surge`}>
+                    <span className="realtime-store-tag">[{r.bookstore}]</span> {r.title}
+                    <span className="realtime-insight-sub">
+                      {" "}
+                      — {r.author || "저자 미상"} · {r.publisher || "출판사 미상"}
+                    </span>
+                    <span className="realtime-insight-meta">
+                      {" "}
+                      (현재 {r.rank}위, ▲{r.rank_change})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="realtime-insight-card">
+            <h3>📈 여러 서점에서 동시에 상승 중</h3>
+            {realtimeSimultaneousRise.length === 0 ? (
+              <p className="trend-empty">2개 이상 서점에서 동시에 상승 중인 도서가 없습니다.</p>
+            ) : (
+              <ul>
+                {realtimeSimultaneousRise.map((b) => (
+                  <li key={b.isbn13}>
+                    {b.title}
+                    <span className="realtime-insight-meta"> (총 상승폭 ▲{b.totalRise})</span>
+                    <br />
+                    <span className="realtime-insight-sub">
+                      {b.stores
+                        .map((s) => {
+                          const change =
+                            typeof s.rank_change === "number"
+                              ? s.rank_change > 0
+                                ? `▲${s.rank_change}`
+                                : s.rank_change < 0
+                                ? `▼${Math.abs(s.rank_change)}`
+                                : "-"
+                              : s.match_status === "matched"
+                              ? "NEW"
+                              : "-";
+                          return `${s.bookstore} ${s.rank}위(${change})`;
+                        })
+                        .join(", ")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="realtime-insight-card">
+            <h3>🆕 새롭게 등장한 책</h3>
+            {realtimeNewEntries.length === 0 ? (
+              <p className="trend-empty">새롭게 등장한 도서가 없습니다.</p>
+            ) : (
+              <ul>
+                {realtimeNewEntries.map((b) => (
+                  <li key={b.isbn13 || b.title}>
+                    {b.title}
+                    <span className="realtime-insight-sub">
+                      {" "}
+                      — {b.stores.map((s) => `${s.bookstore} ${s.rank}위`).join(", ")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="realtime-insight-card">
+            <h3>🔍 급상승 출판사 · 저자 · 키워드</h3>
+            <div className="realtime-insight-subheading">출판사</div>
+            {realtimeSurgeAggregates.publishers.length === 0 ? (
+              <p className="trend-empty">2권 이상 겹치는 출판사가 없습니다.</p>
+            ) : (
+              <ul>
+                {realtimeSurgeAggregates.publishers.slice(0, 5).map((p) => (
+                  <li key={`publisher-${p.name}`}>
+                    {p.name}
+                    <span className="realtime-insight-meta">
+                      {" "}
+                      ({p.count}권, 총 상승폭 ▲{p.totalRise})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="realtime-insight-subheading">저자</div>
+            {realtimeSurgeAggregates.authors.length === 0 ? (
+              <p className="trend-empty">2권 이상 겹치는 저자가 없습니다.</p>
+            ) : (
+              <ul>
+                {realtimeSurgeAggregates.authors.slice(0, 5).map((a) => (
+                  <li key={`author-${a.name}`}>
+                    {a.name}
+                    <span className="realtime-insight-meta">
+                      {" "}
+                      ({a.count}권, 총 상승폭 ▲{a.totalRise})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="realtime-insight-subheading">키워드</div>
+            {realtimeSurgeKeywords.length === 0 ? (
+              <p className="trend-empty">두드러진 키워드가 없습니다.</p>
+            ) : (
+              <div className="keyword-list">
+                {realtimeSurgeKeywords.map(({ keyword, bookCount }) => (
+                  <span className="keyword-chip" key={`realtime-kw-${keyword}`}>
+                    {keyword} <span className="keyword-count">{bookCount}권</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
       )}
     </div>
