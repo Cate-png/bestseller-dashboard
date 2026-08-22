@@ -326,9 +326,9 @@ body {
   margin: 0 0 12px 0;
 }
 
-.realtime-insight-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+.realtime-insight-stack {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
@@ -337,6 +337,10 @@ body {
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   padding: 12px 16px;
+}
+
+.realtime-insight-card-wide {
+  width: 100%;
 }
 
 .realtime-insight-card h3 {
@@ -366,10 +370,6 @@ body {
   margin-top: 0;
 }
 
-.realtime-store-tag {
-  font-weight: 700;
-}
-
 .realtime-insight-sub {
   color: #666;
 }
@@ -377,6 +377,49 @@ body {
 .realtime-insight-meta {
   color: #888;
   font-size: 12px;
+}
+
+/* 🔥 지금 치고 올라오는 책 / 🆕 새롭게 등장한 책 섹션의 서점별 그룹핑.
+   교보문고/예스24/알라딘을 각각 별도 컬럼으로 나눠서, 책마다 [서점명]
+   접두어를 반복하지 않고도 어느 서점 데이터인지 한눈에 구분되게 합니다. */
+.realtime-store-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.realtime-store-column {
+  min-width: 0;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.realtime-store-column-header {
+  padding: 6px 10px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.realtime-store-column-header.kyobo { background: #1e3a8a; }
+.realtime-store-column-header.yes24 { background: #d9534f; }
+.realtime-store-column-header.aladin { background: #e0a800; }
+
+.realtime-store-column ul {
+  margin: 0;
+  padding: 8px 10px 8px 26px;
+  font-size: 12.5px;
+}
+
+.realtime-store-column li {
+  margin-bottom: 8px;
+}
+
+.realtime-store-column .trend-empty {
+  padding: 8px 10px;
+  margin: 0;
 }
 
 .insight-section {
@@ -557,12 +600,12 @@ body {
     padding: 8px 12px 24px;
   }
 
-  .realtime-insight-grid {
-    grid-template-columns: 1fr;
-  }
-
   .realtime-insight-card {
     padding: 12px;
+  }
+
+  .realtime-store-columns {
+    grid-template-columns: 1fr;
   }
 
   .keyword-chip {

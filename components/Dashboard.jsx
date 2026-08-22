@@ -292,18 +292,33 @@ export default function Dashboard({
     return merged;
   }, [bookstores, realtimeData]);
 
-  const realtimeSurging = useMemo(
-    () => getRealtimeSurgingBooks(realtimeAllRows, 5),
-    [realtimeAllRows]
-  );
+  // 서점별 그룹핑 표시를 위해 계산 로직(필터/정렬)은 그대로 둔 채, 서점별로
+  // 나눈 부분집합에 동일한 함수를 그대로 적용합니다(realtimeInsights.js는
+  // 수정하지 않음).
+  const realtimeSurgingByStore = useMemo(() => {
+    const byStore = {};
+    for (const bookstore of bookstores) {
+      byStore[bookstore] = getRealtimeSurgingBooks(
+        realtimeAllRows.filter((r) => r.bookstore === bookstore),
+        5
+      );
+    }
+    return byStore;
+  }, [realtimeAllRows, bookstores]);
   const realtimeSimultaneousRise = useMemo(
     () => getRealtimeSimultaneousRise(realtimeAllRows, 2, 5),
     [realtimeAllRows]
   );
-  const realtimeNewEntries = useMemo(
-    () => getRealtimeNewEntries(realtimeAllRows, 5),
-    [realtimeAllRows]
-  );
+  const realtimeNewEntriesByStore = useMemo(() => {
+    const byStore = {};
+    for (const bookstore of bookstores) {
+      byStore[bookstore] = getRealtimeNewEntries(
+        realtimeAllRows.filter((r) => r.bookstore === bookstore),
+        5
+      );
+    }
+    return byStore;
+  }, [realtimeAllRows, bookstores]);
   const realtimeSurgeAggregates = useMemo(
     () => getRealtimeSurgeAggregates(realtimeAllRows),
     [realtimeAllRows]
@@ -550,31 +565,40 @@ export default function Dashboard({
       {isRealtime && (
       <div className="realtime-insight-section">
         <h2>실시간 트렌드</h2>
-        <div className="realtime-insight-grid">
-          <div className="realtime-insight-card">
+        <div className="realtime-insight-stack">
+          <div className="realtime-insight-card realtime-insight-card-wide">
             <h3>🔥 지금 치고 올라오는 책</h3>
-            {realtimeSurging.length === 0 ? (
-              <p className="trend-empty">아직 20위 이상 상승한 도서가 없습니다.</p>
-            ) : (
-              <ul>
-                {realtimeSurging.map((r) => (
-                  <li key={`${r.bookstore}-${r.isbn13 || r.title}-surge`}>
-                    <span className="realtime-store-tag">[{r.bookstore}]</span> {r.title}
-                    <span className="realtime-insight-sub">
-                      {" "}
-                      — {r.author || "저자 미상"} · {r.publisher || "출판사 미상"}
-                    </span>
-                    <span className="realtime-insight-meta">
-                      {" "}
-                      (현재 {r.rank}위, ▲{r.rank_change})
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className="realtime-store-columns">
+              {bookstores.map((bookstore) => (
+                <div className="realtime-store-column" key={bookstore}>
+                  <div className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}>
+                    {bookstore}
+                  </div>
+                  {(realtimeSurgingByStore[bookstore] || []).length === 0 ? (
+                    <p className="trend-empty">아직 20위 이상 상승한 도서가 없습니다.</p>
+                  ) : (
+                    <ul>
+                      {realtimeSurgingByStore[bookstore].map((r) => (
+                        <li key={`${bookstore}-${r.isbn13 || r.title}-surge`}>
+                          {r.title}
+                          <span className="realtime-insight-sub">
+                            {" "}
+                            — {r.author || "저자 미상"} · {r.publisher || "출판사 미상"}
+                          </span>
+                          <span className="realtime-insight-meta">
+                            {" "}
+                            (현재 {r.rank}위, ▲{r.rank_change})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="realtime-insight-card">
+          <div className="realtime-insight-card realtime-insight-card-wide">
             <h3>📈 여러 서점에서 동시에 상승 중</h3>
             {realtimeSimultaneousRise.length === 0 ? (
               <p className="trend-empty">2개 이상 서점에서 동시에 상승 중인 도서가 없습니다.</p>
@@ -600,7 +624,7 @@ export default function Dashboard({
                               : "-";
                           return `${s.bookstore} ${s.rank}위(${change})`;
                         })
-                        .join(", ")}
+                        .join(" · ")}
                     </span>
                   </li>
                 ))}
@@ -608,26 +632,32 @@ export default function Dashboard({
             )}
           </div>
 
-          <div className="realtime-insight-card">
+          <div className="realtime-insight-card realtime-insight-card-wide">
             <h3>🆕 새롭게 등장한 책</h3>
-            {realtimeNewEntries.length === 0 ? (
-              <p className="trend-empty">새롭게 등장한 도서가 없습니다.</p>
-            ) : (
-              <ul>
-                {realtimeNewEntries.map((b) => (
-                  <li key={b.isbn13 || b.title}>
-                    {b.title}
-                    <span className="realtime-insight-sub">
-                      {" "}
-                      — {b.stores.map((s) => `${s.bookstore} ${s.rank}위`).join(", ")}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className="realtime-store-columns">
+              {bookstores.map((bookstore) => (
+                <div className="realtime-store-column" key={bookstore}>
+                  <div className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}>
+                    {bookstore}
+                  </div>
+                  {(realtimeNewEntriesByStore[bookstore] || []).length === 0 ? (
+                    <p className="trend-empty">새롭게 등장한 도서가 없습니다.</p>
+                  ) : (
+                    <ul>
+                      {realtimeNewEntriesByStore[bookstore].map((b) => (
+                        <li key={b.isbn13 || b.title}>
+                          {b.title}
+                          <span className="realtime-insight-meta"> (현재 {b.bestRank}위)</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="realtime-insight-card">
+          <div className="realtime-insight-card realtime-insight-card-wide">
             <h3>🔍 급상승 출판사 · 저자 · 키워드</h3>
             <div className="realtime-insight-subheading">출판사</div>
             {realtimeSurgeAggregates.publishers.length === 0 ? (
