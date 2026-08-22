@@ -130,6 +130,26 @@ body {
 .column-header.yes24 { background: #d9534f; }
 .column-header.aladin { background: #e0a800; }
 
+/* 주간 베스트셀러(종합/분야별) 모바일 아코디언 헤더. 실시간 탭은 이 클래스를
+   쓰지 않는 일반 <div> 헤더 그대로 유지됩니다. */
+.column-header-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.column-toggle-icon {
+  display: none;
+  flex-shrink: 0;
+  margin-left: 8px;
+  transition: transform 0.15s ease;
+}
+
 .column-count {
   font-weight: 400;
   font-size: 12px;
@@ -490,6 +510,18 @@ body {
 
   .book-list {
     max-height: none;
+  }
+
+  .column-toggle-icon {
+    display: inline-block;
+  }
+
+  .column.collapsed .column-toggle-icon {
+    transform: rotate(-90deg);
+  }
+
+  .column.collapsed .book-list {
+    display: none;
   }
 
   .book-row {
