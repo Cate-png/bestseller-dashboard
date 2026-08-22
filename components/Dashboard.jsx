@@ -442,6 +442,9 @@ export default function Dashboard({
                         {risingByStore[bookstore].map((r) => (
                           <li key={`${r.bookstore}-${r.isbn13}-rise`} className="trend-item">
                             <span className="trend-item-title">{r.title}</span>
+                            <span className="trend-item-sub">
+                              {r.author || "저자 미상"} · {r.publisher || "출판사 미상"}
+                            </span>
                             <span className="trend-item-meta trend-item-meta-up">
                               ↑{r.rank_change} · {r.rank}위
                             </span>
@@ -492,6 +495,9 @@ export default function Dashboard({
                 {simultaneousRise.map((b) => (
                   <li key={b.isbn13} className="trend-item">
                     <span className="trend-item-title">{b.title}</span>
+                    <span className="trend-item-sub">
+                      {b.author || "저자 미상"} · {b.publisher || "출판사 미상"}
+                    </span>
                     <span className="trend-item-meta trend-item-meta-up">
                       {b.stores
                         .map((s) => `${s.bookstore} ↑${s.rank_change}`)
@@ -638,15 +644,13 @@ export default function Dashboard({
                   ) : (
                     <ul>
                       {realtimeSurgingByStore[bookstore].map((r) => (
-                        <li key={`${bookstore}-${r.isbn13 || r.title}-surge`}>
-                          {r.title}
-                          <span className="realtime-insight-sub">
-                            {" "}
-                            — {r.author || "저자 미상"} · {r.publisher || "출판사 미상"}
+                        <li key={`${bookstore}-${r.isbn13 || r.title}-surge`} className="trend-item">
+                          <span className="trend-item-title">{r.title}</span>
+                          <span className="trend-item-sub">
+                            {r.author || "저자 미상"} · {r.publisher || "출판사 미상"}
                           </span>
-                          <span className="realtime-insight-meta">
-                            {" "}
-                            (현재 {r.rank}위, ▲{r.rank_change})
+                          <span className="trend-item-meta trend-item-meta-up">
+                            현재 {r.rank}위 · ▲{r.rank_change}
                           </span>
                         </li>
                       ))}
