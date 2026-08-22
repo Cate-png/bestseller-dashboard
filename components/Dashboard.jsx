@@ -708,25 +708,28 @@ export default function Dashboard({
               onChange={(e) => setHistoryDate(e.target.value)}
             />
           )}
-          <button
-            className={onlyWisdom ? "active" : ""}
-            onClick={() => setOnlyWisdom((v) => !v)}
-          >
-            위즈덤하우스만 보기
-          </button>
-          {(query || onlyWisdom) && (
-            <button
-              onClick={() => {
-                setQuery("");
-                setOnlyWisdom(false);
-              }}
-            >
-              초기화
-            </button>
-          )}
           {historyLoading && (
             <span className="history-loading">불러오는 중...</span>
           )}
+          <div className="controls-actions">
+            {(query || onlyWisdom) && (
+              <button
+                className="reset-button"
+                onClick={() => {
+                  setQuery("");
+                  setOnlyWisdom(false);
+                }}
+              >
+                초기화
+              </button>
+            )}
+            <button
+              className={`wisdom-filter-button${onlyWisdom ? " active" : ""}`}
+              onClick={() => setOnlyWisdom((v) => !v)}
+            >
+              위즈덤하우스만 보기
+            </button>
+          </div>
         </div>
         {historyFetchError && (
           <div className="history-error">{historyFetchError}</div>
