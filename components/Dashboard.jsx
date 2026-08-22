@@ -119,19 +119,55 @@ function BookRow({ row, highlightSurge }) {
 // highlightSurge: 실시간 탭에서 BookColumn을 렌더링할 때만 true로 넘겨,
 // 20위 이상 급상승 도서를 BookRow에서 강조 표시하게 합니다. 종합/분야별
 // 탭은 이 prop을 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
-function BookColumn({ bookstore, rows, error, query, onlyWisdom, highlightSurge }) {
+//
+// collapsible: 종합/분야별(주간 베스트셀러) 탭에서만 true로 넘겨, 모바일
+// 화면에서 서점 헤더를 눌러 그 서점의 목록만 접었다 펼 수 있게 합니다.
+// 실시간 탭에는 이 prop을 넘기지 않으므로(collapsible=false) 기존 UI가
+// 그대로 유지됩니다. 접힘 여부는 CSS(.column.collapsed .book-list)로만
+// 숨기고 모바일 media query 안에서만 적용되므로, 데스크톱에서는 접혀 있는
+// 상태여도 항상 목록이 그대로 보입니다(기존 3열 레이아웃 유지).
+function BookColumn({
+  bookstore,
+  rows,
+  error,
+  query,
+  onlyWisdom,
+  highlightSurge,
+  collapsible,
+}) {
+  const [collapsed, setCollapsed] = useState(false);
   const visibleRows = rows.filter(
     (r) => matchesSearch(r, query) && (!onlyWisdom || isWisdomHouse(r.publisher))
   );
 
+  const headerLabel = (
+    <>
+      {bookstore}{" "}
+      <span className="column-count">
+        ({visibleRows.length}/{rows.length})
+      </span>
+    </>
+  );
+
   return (
-    <div className="column">
-      <div className={`column-header ${COLUMN_CLASS[bookstore] || ""}`}>
-        {bookstore}{" "}
-        <span className="column-count">
-          ({visibleRows.length}/{rows.length})
-        </span>
-      </div>
+    <div className={`column${collapsible && collapsed ? " collapsed" : ""}`}>
+      {collapsible ? (
+        <button
+          type="button"
+          className={`column-header column-header-toggle ${COLUMN_CLASS[bookstore] || ""}`}
+          onClick={() => setCollapsed((v) => !v)}
+          aria-expanded={!collapsed}
+        >
+          <span>{headerLabel}</span>
+          <span className="column-toggle-icon" aria-hidden="true">
+            ▾
+          </span>
+        </button>
+      ) : (
+        <div className={`column-header ${COLUMN_CLASS[bookstore] || ""}`}>
+          {headerLabel}
+        </div>
+      )}
       <div className="book-list">
         {error && rows.length === 0 && (
           <div style={{ padding: 12, fontSize: 13, color: "#a00" }}>{error}</div>
@@ -385,6 +421,7 @@ export default function Dashboard({
             query={query}
             onlyWisdom={onlyWisdom}
             highlightSurge={isRealtime}
+            collapsible={!isRealtime}
           />
         ))}
       </div>
