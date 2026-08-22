@@ -1,4 +1,4 @@
-"""분야별(소설/에세이시/인문/경제경영/자기계발/역사) TOP10 베스트셀러 수집 -> Supabase 저장.
+"""분야별(categories.py의 CATEGORIES 14개 분야) TOP10 베스트셀러 수집 -> Supabase 저장.
 
 기존 종합 TOP100 수집 스크립트(test_save_aladin.py)에서 실제로 검증된 목록/상세
 페이지 파싱 로직(parse_list, parse_detail)과 요청 함수(goto_with_retry)를 그대로

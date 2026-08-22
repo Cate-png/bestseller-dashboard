@@ -48,6 +48,15 @@ body {
   margin-top: 12px;
 }
 
+/* 2단(분야별) 탭은 1단(종합/실시간)과 살짝 더 벌리고 위쪽에 옅은 구분선을
+   둬서, 데스크톱에서 "1단 종합/실시간 - 2단 14개 분야" 구조가 한눈에
+   보이도록 합니다. */
+.category-tabs-secondary {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+}
+
 .category-tab {
   padding: 6px 14px;
   border: 1px solid #ccc;

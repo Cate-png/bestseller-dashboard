@@ -1,4 +1,4 @@
-"""분야별(소설/에세이시/인문/경제경영/자기계발/역사) TOP10 베스트셀러 수집 -> Supabase 저장.
+"""분야별(categories.py의 CATEGORIES 14개 분야) TOP10 베스트셀러 수집 -> Supabase 저장.
 
 test_save_kyobo.py와 동일하게 내부 JSON API 기반으로 전환했습니다(기존
 HTML 스크래핑 + 상세페이지 순회 방식 폐기). test_save_kyobo.py의

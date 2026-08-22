@@ -271,10 +271,10 @@ export default function Dashboard({
   const [historyErrors, setHistoryErrors] = useState({});
   const [historyResolvedAt, setHistoryResolvedAt] = useState({});
 
-  const tabs = useMemo(
-    () => [TOTAL_CATEGORY, ...categories, REALTIME_TAB],
-    [categories]
-  );
+  // 탭을 1단(종합/실시간 베스트셀러)과 2단(분야별 14개)으로 분리해서
+  // 렌더링합니다. categories(=lib/categories.js의 CATEGORIES)의 배열
+  // 순서가 그대로 2단 탭의 표시 순서가 됩니다.
+  const primaryTabs = useMemo(() => [TOTAL_CATEGORY, REALTIME_TAB], []);
   const isTotal = selectedCategory === TOTAL_CATEGORY;
   const isRealtime = selectedCategory === REALTIME_TAB;
   const historyMode = historyStoreData !== null;
@@ -520,8 +520,19 @@ export default function Dashboard({
         <h1>{isRealtime ? "실시간 베스트셀러 현황" : "주간 베스트셀러 현황"}</h1>
         <div className="meta">{isRealtime ? "매시간 갱신" : "매일 오전 6시 갱신"}</div>
         <div className="meta">{formatDateTime(activeCollectedAt)}</div>
-        <div className="category-tabs">
-          {tabs.map((tab) => (
+        <div className="category-tabs category-tabs-primary">
+          {primaryTabs.map((tab) => (
+            <button
+              key={tab}
+              className={`category-tab${selectedCategory === tab ? " active" : ""}`}
+              onClick={() => selectTab(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="category-tabs category-tabs-secondary">
+          {categories.map((tab) => (
             <button
               key={tab}
               className={`category-tab${selectedCategory === tab ? " active" : ""}`}
