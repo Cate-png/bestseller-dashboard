@@ -86,9 +86,8 @@ body {
 }
 
 .controls .search-input {
-  flex: 1 1 220px;
-  min-width: 160px;
-  max-width: 320px;
+  flex: 1 1 320px;
+  min-width: 200px;
   padding: 8px 12px;
   border: 1px solid #ccc;
   border-radius: 6px;
@@ -115,10 +114,40 @@ body {
   font-size: 14px;
 }
 
-.controls button.active {
+/* 초기화(보조 버튼) + 위즈덤하우스 필터를 한 묶음으로 컨트롤 행의
+   가장 오른쪽 끝에 붙입니다. margin-left: auto를 이 묶음 전체에 걸어서,
+   초기화 버튼이 조건부로 사라지고 나타나도(query/onlyWisdom 여부) 위즈덤
+   필터 버튼의 위치가 흔들리지 않고 항상 맨 오른쪽에 고정되게 합니다. */
+.controls-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* 위즈덤하우스 필터는 눈에 잘 띄도록 카테고리 탭의 활성 색과 동일한
+   짙은 녹색을 기본 배경으로 씁니다(켜져 있을 때만이 아니라 항상). 켜진
+   상태(.active)는 한 단계 더 짙게 해서 지금 필터링 중임을 구분합니다. */
+.controls-actions .wisdom-filter-button {
   background: #2d4a3e;
   color: #fff;
   border-color: #2d4a3e;
+  font-weight: 600;
+}
+
+.controls-actions .wisdom-filter-button:hover {
+  background: #24392f;
+  border-color: #24392f;
+}
+
+.controls-actions .wisdom-filter-button.active {
+  background: #1c2f27;
+  border-color: #1c2f27;
+}
+
+.controls-actions .reset-button {
+  color: #555;
 }
 
 .history-loading {
@@ -716,6 +745,10 @@ body {
   .controls .search-input,
   .controls .date-input,
   .controls .hour-select {
+    /* 세로(column) 배치에서는 flex-basis가 주축인 높이에 적용되므로,
+       데스크톱용 flex-basis(예: 검색창의 320px)를 auto로 되돌려 요소가
+       내용/패딩만큼의 자연스러운 높이를 갖게 합니다. */
+    flex: 0 0 auto;
     width: 100%;
     max-width: none;
     min-width: 0;
@@ -725,6 +758,14 @@ body {
   .controls button {
     width: 100%;
     padding: 9px 12px;
+  }
+
+  .controls-actions {
+    width: 100%;
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
   }
 
   .columns {
