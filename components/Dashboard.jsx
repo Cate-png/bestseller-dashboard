@@ -58,27 +58,37 @@ function RankChange({ rankChange, matchStatus }) {
   return <span className="rank-change flat">-</span>;
 }
 
-function BookRow({ row }) {
+// 실시간 탭에서만 20위 이상 급상승(rank_change >= 20) 도서의 제목을
+// 볼드 처리하고 🔥를 붙여 표시하기 위한 플래그. 다른 탭(종합/분야별)에는
+// highlightSurge를 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
+function BookRow({ row, highlightSurge }) {
   const wisdom = isWisdomHouse(row.publisher);
+  const isSurge =
+    highlightSurge && typeof row.rank_change === "number" && row.rank_change >= 20;
+  const titleClass = `book-title${wisdom ? " wisdom-title" : ""}${
+    isSurge ? " surge-title" : ""
+  }`;
+  const titleContent = (
+    <>
+      {wisdom && <span className="wisdom-badge">위즈덤</span>}
+      {isSurge && (
+        <span className="surge-emoji" aria-hidden="true">
+          🔥
+        </span>
+      )}
+      {row.title}
+    </>
+  );
   return (
     <div className={`book-row${wisdom ? " wisdom" : ""}`}>
       <div className="rank">{row.rank}</div>
       <div className="book-info">
         {row.url ? (
-          <a
-            className={`book-title${wisdom ? " wisdom-title" : ""}`}
-            href={row.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {wisdom && <span className="wisdom-badge">위즈덤</span>}
-            {row.title}
+          <a className={titleClass} href={row.url} target="_blank" rel="noopener noreferrer">
+            {titleContent}
           </a>
         ) : (
-          <span className={`book-title${wisdom ? " wisdom-title" : ""}`}>
-            {wisdom && <span className="wisdom-badge">위즈덤</span>}
-            {row.title}
-          </span>
+          <span className={titleClass}>{titleContent}</span>
         )}
         <div className="book-sub">
           {row.author || "저자 미상"} · {row.publisher || "출판사 미상"}
@@ -153,7 +163,7 @@ function RealtimeAccordionSection({ bookstore, rows, error, query, onlyWisdom, o
             </div>
           )}
           {visibleRows.map((row) => (
-            <BookRow key={`${bookstore}-realtime-${row.rank}`} row={row} />
+            <BookRow key={`${bookstore}-realtime-${row.rank}`} row={row} highlightSurge />
           ))}
         </div>
       )}
