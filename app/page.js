@@ -100,24 +100,6 @@ export default async function Page() {
   const errors = {};
   let latestCollectedAt = null;
 
-  for (const bookstore of BOOKSTORES) {
-    try {
-      const rankings = await getLatestCategoryRankings(client, bookstore, CATEGORY);
-      storeData[bookstore] = rankings;
-      if (rankings.length === 0) {
-        errors[bookstore] = "아직 성공한 수집 기록이 없습니다.";
-      } else {
-        const t = rankings[0].collected_at;
-        if (!latestCollectedAt || t > latestCollectedAt) {
-          latestCollectedAt = t;
-        }
-      }
-    } catch (e) {
-      storeData[bookstore] = [];
-      errors[bookstore] = String(e.message || e);
-    }
-  }
-
   // 분야별 TOP10: 예전에는 14개 분야 x 3개 서점을 페이지 렌더링 시점에
   // 전부 미리 조회해뒀지만(최대 84개 쿼리), 분야가 6개에서 14개로 늘면서
   // 초기 로딩이 눈에 띄게 느려졌습니다. Dashboard.jsx가 어차피 마운트 후
@@ -126,41 +108,73 @@ export default async function Page() {
   // 진입하는 순간 클라이언트가 곧바로 덮어씀). 그래서 서버에서는 더 이상
   // 분야별 데이터를 조회하지 않고, 분야 탭을 클릭했을 때만 Dashboard.jsx가
   // /api/history?scope=category&category=...를 호출해 그 분야 데이터를
-  // 지연 조회(lazy load)하도록 바꿨습니다. categories(분야 이름 목록)는
-  // 탭 렌더링에 계속 필요하므로 그대로 넘깁니다.
+  // 지연 조회(lazy load)합니다(app/api/history/route.js에서 서점 3곳을
+  // Promise.all로 병렬 조회 - 이미 병렬화되어 있어 추가로 손댈 부분이
+  // 없습니다). categories(분야 이름 목록)는 탭 렌더링에 계속 필요하므로
+  // 그대로 넘깁니다.
   const categoryData = {};
   const categoryErrors = {};
 
-  // 실시간 베스트셀러: 기존 주간/분야별 rankings와 완전히 별개인 realtime_rankings에서
-  // 서점별 최신 스냅샷만 조회합니다. 이 단계에서는 순위 표시만 하고 트렌드/급상승
-  // 분석은 하지 않으므로 window 조회 같은 추가 계산은 하지 않습니다.
   const realtimeData = {};
   const realtimeErrors = {};
-  await Promise.all(
-    BOOKSTORES.map(async (bookstore) => {
-      try {
-        const rankings = await getLatestRealtimeRankings(client, bookstore);
-        realtimeData[bookstore] = rankings;
-        if (rankings.length === 0) {
-          realtimeErrors[bookstore] = "아직 성공한 실시간 수집 기록이 없습니다.";
-        }
-      } catch (e) {
-        realtimeData[bookstore] = [];
-        realtimeErrors[bookstore] = String(e.message || e);
-      }
-    })
-  );
 
-  // 트렌드 분석용: 최근 6시간 / 24시간 구간 원본 데이터 (여러 run_id에 걸쳐 있음, 종합 기준)
   let window6h = [];
   let window24h = [];
-  try {
-    window6h = await getWindowRows(client, 6);
-    window24h = await getWindowRows(client, 24);
-  } catch (e) {
-    // 트렌드 구간 조회가 실패해도 기본 화면은 정상적으로 보여줘야 하므로
-    // 여기서는 조용히 빈 배열로 둡니다. (Dashboard 쪽에서 "데이터 부족" 처리)
-  }
+
+  // 종합 / 실시간 / 트렌드 윈도우(6h·24h)는 서로 전혀 참조하지 않는
+  // 독립적인 조회라 순서대로 기다릴 이유가 없습니다. 예전에는 이 셋이
+  // 코드 순서대로 하나씩 끝나야 다음이 시작되는 구조였고(종합만도 서점
+  // 3곳을 for...of로 순차 조회해 쿼리 6개를 한 줄로 세워 기다렸습니다),
+  // 이게 분야 개수와 무관하게 항상 있던 진짜 로딩 병목이었습니다. 셋을
+  // 한 번에 Promise.all로 묶고, 종합/실시간 각각도 서점별로 병렬 조회하도록
+  // 바꿨습니다 - 조회하는 데이터나 계산 로직은 그대로이고 기다리는 순서만
+  // 바꿨습니다.
+  await Promise.all([
+    Promise.all(
+      BOOKSTORES.map(async (bookstore) => {
+        try {
+          const rankings = await getLatestCategoryRankings(client, bookstore, CATEGORY);
+          storeData[bookstore] = rankings;
+          if (rankings.length === 0) {
+            errors[bookstore] = "아직 성공한 수집 기록이 없습니다.";
+          } else {
+            const t = rankings[0].collected_at;
+            if (!latestCollectedAt || t > latestCollectedAt) {
+              latestCollectedAt = t;
+            }
+          }
+        } catch (e) {
+          storeData[bookstore] = [];
+          errors[bookstore] = String(e.message || e);
+        }
+      })
+    ),
+    Promise.all(
+      BOOKSTORES.map(async (bookstore) => {
+        try {
+          const rankings = await getLatestRealtimeRankings(client, bookstore);
+          realtimeData[bookstore] = rankings;
+          if (rankings.length === 0) {
+            realtimeErrors[bookstore] = "아직 성공한 실시간 수집 기록이 없습니다.";
+          }
+        } catch (e) {
+          realtimeData[bookstore] = [];
+          realtimeErrors[bookstore] = String(e.message || e);
+        }
+      })
+    ),
+    (async () => {
+      try {
+        [window6h, window24h] = await Promise.all([
+          getWindowRows(client, 6),
+          getWindowRows(client, 24),
+        ]);
+      } catch (e) {
+        // 트렌드 구간 조회가 실패해도 기본 화면은 정상적으로 보여줘야 하므로
+        // 여기서는 조용히 빈 배열로 둡니다. (Dashboard 쪽에서 "데이터 부족" 처리)
+      }
+    })(),
+  ]);
 
   return (
     <Dashboard
