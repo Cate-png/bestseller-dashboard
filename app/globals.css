@@ -290,6 +290,30 @@ body {
   margin-bottom: 4px;
 }
 
+/* 제목과 등락 정보를 같은 줄/같은 스타일로 붙여 쓰던 것을 분리 - 제목은
+   본문 색, 등락 정보는 아래 줄에 작고 굵은 강조색으로 구분해 가독성을
+   높입니다. */
+.trend-item {
+  list-style: none;
+  margin-bottom: 8px;
+}
+
+.trend-item-title {
+  display: block;
+  color: #1a1a1a;
+}
+
+.trend-item-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.trend-item-meta-up {
+  color: #d92626;
+}
+
 .trend-empty {
   color: #999;
   font-size: 12px;

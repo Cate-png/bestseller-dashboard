@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { isWisdomHouse } from "../lib/wisdomhouse";
 import {
   getRisingBooks,
-  getFallingBooks,
   getNewEntries,
   getSimultaneousRise,
   getCommonBooks,
@@ -37,7 +36,7 @@ function formatDateTime(iso) {
   )}:${pad(d.getMinutes())} 기준`;
 }
 
-// lib/trends.js가 이미 계산해 둔 결과(rising/falling/newEntries/trend6h/
+// lib/trends.js가 이미 계산해 둔 결과(rising/newEntries/trend6h/
 // trend24h)를 bookstore 필드로만 나누는 순수 표시용 그룹화입니다. 새로운
 // 집계/계산은 하지 않고, 각 서점 목록 안의 항목·순서·값은 그대로 유지합니다.
 function groupRowsByStore(rows, bookstores) {
@@ -259,7 +258,6 @@ export default function Dashboard({
   }, [bookstores, storeData]);
 
   const rising = useMemo(() => getRisingBooks(allRows, 10), [allRows]);
-  const falling = useMemo(() => getFallingBooks(allRows, 10), [allRows]);
   const newEntries = useMemo(() => getNewEntries(allRows, 10), [allRows]);
   const simultaneousRise = useMemo(
     () => getSimultaneousRise(allRows, 2, 10),
@@ -273,16 +271,12 @@ export default function Dashboard({
   );
 
   // 종합 탭 하단 트렌드 카드를 실시간 탭과 동일한 서점별 3열 구조로 보여주기
-  // 위한 표시 전용 그룹화. rising/falling/newEntries/trend6h/trend24h 자체의
+  // 위한 표시 전용 그룹화. rising/newEntries/trend6h/trend24h 자체의
   // 계산(lib/trends.js)은 그대로이고, 이미 계산된 결과를 bookstore로 나누기만
   // 합니다.
   const risingByStore = useMemo(
     () => groupRowsByStore(rising, bookstores),
     [rising, bookstores]
-  );
-  const fallingByStore = useMemo(
-    () => groupRowsByStore(falling, bookstores),
-    [falling, bookstores]
   );
   const newEntriesByStore = useMemo(
     () => groupRowsByStore(newEntries, bookstores),
@@ -444,39 +438,13 @@ export default function Dashboard({
                     {(risingByStore[bookstore] || []).length === 0 ? (
                       <p className="trend-empty">데이터가 부족합니다.</p>
                     ) : (
-                      <ul>
+                      <ul className="trend-list">
                         {risingByStore[bookstore].map((r) => (
-                          <li key={`${r.bookstore}-${r.isbn13}-rise`}>
-                            {r.title} (↑{r.rank_change}, {r.rank}위)
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </TrendCard>
-
-          <TrendCard title="급락 도서 (직전 수집 대비)" className="trend-card-wide">
-            {falling.length === 0 ? (
-              <p className="trend-empty">데이터가 부족합니다.</p>
-            ) : (
-              <div className="realtime-store-columns">
-                {bookstores.map((bookstore) => (
-                  <div className="realtime-store-column" key={bookstore}>
-                    <div
-                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
-                    >
-                      {bookstore}
-                    </div>
-                    {(fallingByStore[bookstore] || []).length === 0 ? (
-                      <p className="trend-empty">데이터가 부족합니다.</p>
-                    ) : (
-                      <ul>
-                        {fallingByStore[bookstore].map((r) => (
-                          <li key={`${r.bookstore}-${r.isbn13}-fall`}>
-                            {r.title} (↓{Math.abs(r.rank_change)}, {r.rank}위)
+                          <li key={`${r.bookstore}-${r.isbn13}-rise`} className="trend-item">
+                            <span className="trend-item-title">{r.title}</span>
+                            <span className="trend-item-meta trend-item-meta-up">
+                              ↑{r.rank_change} · {r.rank}위
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -520,13 +488,15 @@ export default function Dashboard({
             {simultaneousRise.length === 0 ? (
               <p className="trend-empty">해당하는 도서가 없습니다.</p>
             ) : (
-              <ul>
+              <ul className="trend-list">
                 {simultaneousRise.map((b) => (
-                  <li key={b.isbn13}>
-                    {b.title} —{" "}
-                    {b.stores
-                      .map((s) => `${s.bookstore} ↑${s.rank_change}`)
-                      .join(", ")}
+                  <li key={b.isbn13} className="trend-item">
+                    <span className="trend-item-title">{b.title}</span>
+                    <span className="trend-item-meta trend-item-meta-up">
+                      {b.stores
+                        .map((s) => `${s.bookstore} ↑${s.rank_change}`)
+                        .join(" · ")}
+                    </span>
                   </li>
                 ))}
               </ul>
