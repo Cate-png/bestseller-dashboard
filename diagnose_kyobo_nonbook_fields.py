@@ -1,0 +1,140 @@
+"""이미 실제 실시간 TOP100에 등장했던 것으로 확인된 비도서 상품들
+("The Scent of Page : 디퓨저 리필액 250ML", "The Scent of Page : 차량용
+방향제(개선판)", "GOGO [정규 3집] [PHOTOBOOK VER]")을 교보문고 검색으로 직접
+찾아서, best-seller API와 동일한 분류 필드(saleCmdtClstCode/
+saleCmdtClstName/saleCmdtGrpDvsnCode/saleCmdtDvsnCode)가 검색 결과 JSON에도
+있는지, 있다면 실제 값이 무엇인지 확인하는 읽기 전용 진단 스크립트.
+
+배경: diagnose_kyobo_realtime_bookonly.py를 실행한 시점(2026-08-22)의
+실시간 TOP100에는 이 비도서 상품들이 더 이상 순위에 없어서(실시간이라 계속
+바뀜), 그 상품들 자체의 분류 필드 값을 직접 볼 수 없었음. 도서/비도서를
+구분하는 필터 기준을 추측 없이 확정하려면 이 상품들의 실제 필드 값이
+필요함.
+
+Supabase에 아무것도 저장하지 않습니다.
+"""
+
+import json
+import sys
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    print("오류: playwright 라이브러리가 설치되어 있지 않습니다.")
+    sys.exit(1)
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
+
+# 2026-08-21 실시간 TOP100 실제 수집 로그에서 확인된 비도서로 의심되는 상품의
+# cmdtCode(=isbn13 자리에 들어온 상품 바코드)와 이름
+KNOWN_NON_BOOK_ITEMS = [
+    ("8809457270583", "The Scent of Page : 디퓨저 리필액 250ML"),
+    ("8809457270590", "The Scent of Page : 차량용 방향제(개선판)"),
+    ("8804775481000", "GOGO [정규 3집] [PHOTOBOOK VER]"),
+]
+
+
+def section(title):
+    print("\n" + "=" * 80)
+    print(title)
+    print("=" * 80)
+
+
+def search_and_capture(page, keyword):
+    """교보문고 통합검색 페이지를 열고, 그 과정에서 발생하는 상품 관련 JSON
+    API 응답 전부를 캡처한다. 캡처된 응답 안에서 cmdtCode/saleCmdtClstCode
+    등 익숙한 필드가 있는 항목을 찾아 반환한다."""
+    captured = []
+
+    def on_response(response):
+        try:
+            url = response.url
+            if "kyobobook.co.kr" not in url:
+                return
+            ctype = response.headers.get("content-type", "")
+            if "json" not in ctype:
+                return
+            captured.append((url, response.json()))
+        except Exception:
+            pass
+
+    page.on("response", on_response)
+    search_url = f"https://search.kyobobook.co.kr/search?keyword={keyword}"
+    try:
+        page.goto(search_url, timeout=30000)
+        page.wait_for_load_state("networkidle", timeout=30000)
+        page.wait_for_timeout(2000)
+    except Exception as e:
+        print(f"  검색 페이지 로딩 실패: {e}")
+    page.remove_listener("response", on_response)
+    return captured
+
+
+def find_items_with_code(obj, target_code, found, path="root"):
+    """중첩된 JSON 어디에 있든 cmdtCode == target_code인 dict를 찾아낸다."""
+    if isinstance(obj, dict):
+        if obj.get("cmdtCode") == target_code:
+            found.append((path, obj))
+        for k, v in obj.items():
+            find_items_with_code(v, target_code, found, f"{path}.{k}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj[:50]):
+            find_items_with_code(v, target_code, found, f"{path}[{i}]")
+
+
+def main():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(user_agent=USER_AGENT, locale="ko-KR", timezone_id="Asia/Seoul")
+
+        for cmdt_code, name in KNOWN_NON_BOOK_ITEMS:
+            section(f"검색: {name!r} (cmdtCode={cmdt_code})")
+            captured = search_and_capture(page, name)
+            print(f"  캡처된 JSON 응답 개수: {len(captured)}")
+
+            found = []
+            for url, body in captured:
+                find_items_with_code(body, cmdt_code, found)
+
+            if found:
+                for path, item in found:
+                    print(f"\n  [일치] {path}")
+                    print(
+                        f"    cmdtName={item.get('cmdtName')!r}\n"
+                        f"    saleCmdtClstCode={item.get('saleCmdtClstCode')!r} "
+                        f"saleCmdtClstName={item.get('saleCmdtClstName')!r}\n"
+                        f"    saleCmdtGrpDvsnCode={item.get('saleCmdtGrpDvsnCode')!r} "
+                        f"saleCmdtDvsnCode={item.get('saleCmdtDvsnCode')!r}\n"
+                        f"    saleCdtnCode={item.get('saleCdtnCode')!r} "
+                        f"cmdtCdtnCode={item.get('cmdtCdtnCode')!r}"
+                    )
+            else:
+                print("  정확히 cmdtCode가 일치하는 항목을 못 찾음. "
+                      "캡처된 응답 중 상품 목록으로 보이는 배열의 첫 항목들을 대신 출력:")
+                for url, body in captured:
+                    if not isinstance(body, dict):
+                        continue
+                    data = body.get("data")
+                    if isinstance(data, dict):
+                        for k, v in data.items():
+                            if isinstance(v, list) and v and isinstance(v[0], dict) and "cmdtName" in v[0]:
+                                print(f"\n  {url}  (data.{k}, {len(v)}건)")
+                                for it in v[:3]:
+                                    print(
+                                        f"    cmdtName={it.get('cmdtName')!r} cmdtCode={it.get('cmdtCode')!r} "
+                                        f"saleCmdtClstName={it.get('saleCmdtClstName')!r} "
+                                        f"saleCmdtDvsnCode={it.get('saleCmdtDvsnCode')!r}"
+                                    )
+
+        browser.close()
+
+    print("\n" + "=" * 80)
+    print("진단 완료. 이 스크립트는 Supabase에 아무것도 저장하지 않습니다.")
+    print("=" * 80)
+
+
+if __name__ == "__main__":
+    main()

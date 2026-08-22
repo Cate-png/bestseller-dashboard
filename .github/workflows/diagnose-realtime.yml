@@ -105,3 +105,22 @@ jobs:
 
       - name: Diagnose Kyobo realtime book-only classification fields (read-only, no Supabase writes)
         run: python diagnose_kyobo_realtime_bookonly.py
+
+  diagnose-kyobo-nonbook-fields:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          playwright install chromium
+
+      - name: Diagnose known non-book item classification fields via search (read-only, no Supabase writes)
+        run: python diagnose_kyobo_nonbook_fields.py
