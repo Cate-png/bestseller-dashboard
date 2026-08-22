@@ -168,6 +168,28 @@ body {
   color: #3730a3;
   border-radius: 6px;
   font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-banner-button {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid #3730a3;
+  border-radius: 6px;
+  background: #fff;
+  color: #3730a3;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.history-banner-button:hover {
+  background: #3730a3;
+  color: #fff;
 }
 
 .error-banner {
