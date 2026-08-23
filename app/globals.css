@@ -111,9 +111,9 @@ body {
 }
 
 .category-tab.active {
-  background: #e0a800;
+  background: #fff078;
   color: #1a1a1a;
-  border-color: #e0a800;
+  border-color: #fff078;
 }
 
 /* 검색창 + 날짜/시간 선택 + 위즈덤하우스 필터 + 초기화를 한 줄에 배치합니다
@@ -169,25 +169,21 @@ body {
   flex: 0 0 auto;
 }
 
-/* 위즈덤하우스 필터의 기본(idle) 배경은 위즈덤하우스 브랜드 컬러
-   (#fff078)를 씁니다(켜져 있을 때만이 아니라 항상). hover와 켜진
-   상태(.active)는 카테고리 탭의 활성 색과 동일한 노란색(#e0a800)으로
-   구분합니다. */
+/* 위즈덤하우스 필터의 기본(idle) 배경은 기존 노란색(#e0a800)을 그대로
+   씁니다. hover만으로는 색이 바뀌지 않고(별도 :hover 규칙 없음), 실제로
+   켜진 상태(.active)일 때만 위즈덤하우스 브랜드 컬러(#fff078)로
+   바뀝니다 - 이미 켜진 버튼을 hover해도 .active 규칙이 그대로 적용되어
+   같은 색을 유지합니다. */
 .controls-actions .wisdom-filter-button {
-  background: #fff078;
+  background: #e0a800;
   color: #1a1a1a;
-  border-color: #fff078;
+  border-color: #e0a800;
   font-weight: 600;
 }
 
-.controls-actions .wisdom-filter-button:hover {
-  background: #e0a800;
-  border-color: #e0a800;
-}
-
 .controls-actions .wisdom-filter-button.active {
-  background: #e0a800;
-  border-color: #e0a800;
+  background: #fff078;
+  border-color: #fff078;
 }
 
 .controls-actions .reset-button {
