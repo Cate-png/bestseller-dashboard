@@ -100,7 +100,7 @@ export default async function Page() {
   const errors = {};
   let latestCollectedAt = null;
 
-  // 분야별 TOP10: 예전에는 14개 분야 x 3개 서점을 페이지 렌더링 시점에
+  // 분야별 TOP20: 예전에는 14개 분야 x 3개 서점을 페이지 렌더링 시점에
   // 전부 미리 조회해뒀지만(최대 84개 쿼리), 분야가 6개에서 14개로 늘면서
   // 초기 로딩이 눈에 띄게 느려졌습니다. Dashboard.jsx가 어차피 마운트 후
   // 선택된 탭 기준으로 /api/history를 호출해 최신 데이터를 다시 받아오는

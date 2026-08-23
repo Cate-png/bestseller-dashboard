@@ -1,4 +1,4 @@
-"""분야별(categories.py의 CATEGORIES 14개 분야) TOP10 베스트셀러 수집 -> Supabase 저장.
+"""분야별(categories.py의 CATEGORIES 14개 분야) TOP20 베스트셀러 수집 -> Supabase 저장.
 
 test_save_kyobo.py와 동일하게 내부 JSON API 기반으로 전환했습니다(기존
 HTML 스크래핑 + 상세페이지 순회 방식 폐기). test_save_kyobo.py의
@@ -19,8 +19,8 @@ categories.py의 카테고리 코드를 그대로 재사용합니다. 응답 항
 API와 동일한 것을 확인했습니다.
 
 기존 스크립트와의 차이:
-- 분야마다 TOP10까지만 수집합니다 (목록 페이지 1페이지만 조회, per=20 중
-  앞 10건만 사용).
+- 분야마다 TOP20까지만 수집합니다 (목록 페이지 1페이지만 조회, per=20
+  전부 사용).
 - collection_runs는 "이번 분야별 수집 전체"를 대표하는 행 1개만 남기고,
   rankings에는 분야별로 category 값을 다르게 저장합니다.
 - 분야 하나가 실패해도 나머지 분야 수집은 계속 진행합니다.

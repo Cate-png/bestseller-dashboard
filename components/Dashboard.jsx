@@ -549,7 +549,7 @@ export default function Dashboard({
 
   // 도서별 순위 변화 차트 상태. 현재 보고 있는 탭(종합/분야별/실시간)과
   // 동일한 스코프로 /api/book-history를 호출합니다 - 예를 들어 "소설"
-  // 분야 목록에서 연 책은 "소설" 분야 TOP10 안에서의 순위 이력을 보여주고,
+  // 분야 목록에서 연 책은 "소설" 분야 TOP20 안에서의 순위 이력을 보여주고,
   // 실시간 탭에서 연 책은 실시간 순위 이력을 보여줍니다.
   const [chartBook, setChartBook] = useState(null); // { isbn13, title }
   const [chartData, setChartData] = useState(null);

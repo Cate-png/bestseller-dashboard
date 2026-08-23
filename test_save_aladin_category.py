@@ -1,4 +1,4 @@
-"""분야별(categories.py의 CATEGORIES 14개 분야) TOP10 베스트셀러 수집 -> Supabase 저장.
+"""분야별(categories.py의 CATEGORIES 14개 분야) TOP20 베스트셀러 수집 -> Supabase 저장.
 
 기존 종합 TOP100 수집 스크립트(test_save_aladin.py)에서 실제로 검증된 목록/상세
 페이지 파싱 로직(parse_list, parse_detail)과 요청 함수(goto_with_retry)를 그대로
@@ -14,8 +14,9 @@ requests로 알라딘에 접근하면 "403 Client Error: Forbidden"이 발생했
 (자세한 내용은 test_save_aladin.py의 goto_with_retry 주석 참고)
 
 기존 스크립트와의 차이:
-- 분야마다 TOP10까지만 수집합니다 (기존은 TOP100을 위해 2페이지를 조회했지만,
-  여기서는 1페이지 조회 결과에서 앞 10권만 사용합니다).
+- 분야마다 TOP20까지만 수집합니다 (기존은 TOP100을 위해 2페이지를 조회했지만,
+  여기서는 1페이지 조회 결과에서 앞 20권만 사용합니다 - 1페이지가 최대
+  50건을 주므로 페이지네이션 없이 충분합니다).
 - collection_runs는 "이번 분야별 수집 전체"를 대표하는 행 1개만 남기고,
   rankings에는 분야별로 category 값을 다르게 저장합니다.
 - 분야 하나가 실패해도 나머지 분야 수집은 계속 진행합니다.
