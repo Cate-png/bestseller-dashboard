@@ -188,9 +188,17 @@ body {
   font-weight: 600;
 }
 
-.controls-actions .wisdom-filter-button:hover {
-  background: #e0a800;
-  border-color: #e0a800;
+/* 실제 마우스 hover가 가능한 기기에서만 hover 색상을 적용합니다.
+   터치 기기는 마우스가 "떠나는" 이벤트가 없어 탭 한 번으로 :hover가
+   그대로 눌어붙어(sticky hover) 클릭 전인데도 켜진(.active) 색상처럼
+   보이는 문제가 있었습니다 - (hover: hover)로 감싸 터치 기기에서는
+   :hover 자체가 적용되지 않게 하고, 실제 on/off 색상은 .active(클릭
+   상태, React 상태로 제어)에만 맡깁니다. */
+@media (hover: hover) {
+  .controls-actions .wisdom-filter-button:hover {
+    background: #e0a800;
+    border-color: #e0a800;
+  }
 }
 
 .controls-actions .wisdom-filter-button.active {
