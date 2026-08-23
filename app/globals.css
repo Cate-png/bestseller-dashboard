@@ -732,7 +732,7 @@ body {
 /* 모바일 최적화 */
 @media (max-width: 768px) {
   .header {
-    padding: 10px 16px;
+    padding: 10px 12px;
   }
 
   .brand-logo {
