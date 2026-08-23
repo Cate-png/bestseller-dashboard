@@ -14,21 +14,47 @@ name: Realtime Bestseller Collection
 # 문서에 명시되어 있고(Troubleshooting workflows), 실제로 이 워크플로의
 # 최근 실행 이력을 조사해보니 정각(0분) 스케줄 실행의 과반수가 45분 이상
 # 지연되고 있었습니다(중앙값 46분). 1분으로 옮기면 그 혼잡 구간을 피해갈
-# 수 있습니다. collected_at은 각 스크립트가 datetime.now(timezone.utc)로
-# "실제 수집을 시작한 시각"을 그대로 기록하므로 이 변경으로 바뀌지 않고,
-# Dashboard.jsx의 시간대별(00~23시) 조회도 "그 시간대의 끝까지 중 가장
-# 최근 스냅샷"을 찾는 방식이라 몇 분 늦게(또는 1분 일찍) 수집되어도 해당
-# 시(H) 회차로 그대로 잡힙니다 - 둘 다 손댈 필요가 없습니다.
+# 수 있습니다.
+#
+# 2026-08-23: 그런데도 GitHub Actions schedule 자체가 특정 회차를 통째로
+# 건너뛰는 사례가 실제로 반복 확인됐습니다(예: 13:01 회차가 발화조차 되지
+# 않아 13시 데이터가 아예 비어 사이트에 12:31 데이터가 남아있던 문제).
+# 그래서 05분 간격(매시 01,06,11,16,21,26,31,36,41,46,51,56분)으로
+# 스케줄을 촘촘하게 잡아, 특정 회차가 지연/누락돼도 같은 시간대 안에서
+# 다음 실행이 곧바로 보충하도록 바꿨습니다. 다만 실행될 때마다 무조건
+# 크롤링하면 같은 시간대에 최대 12번 중복 수집이 일어나므로, 각 job이
+# 크롤링 직전에 check_realtime_hour_collected.py로 "내 서점의 이번
+# KST 시간대 데이터가 이미 realtime_rankings에 있는지"를 먼저 확인하고,
+# 있으면 크롤링 스텝을 건너뜁니다(아래 각 job의 "Check ..." 스텝 참고).
+# 이미 있는 시간대는 다시 수집하지 않고, 없는 시간대만 채우므로 "같은
+# 시간대에는 정상적인 3사 데이터 세트가 한 번만 생성된다"는 목표가
+# 유지됩니다. collected_at은 여전히 각 스크립트가
+# datetime.now(timezone.utc)로 "실제 수집을 시작한 시각"을 그대로
+# 기록하고, Dashboard.jsx의 시간대별(00~23시) 조회 로직도 손대지
+# 않았습니다.
+#
+# concurrency: 5분 간격이라 이전 실행이 끝나기 전에 다음 schedule이 겹칠
+# 수 있습니다. cancel-in-progress를 쓰면 크롤링이 중간에 끊겨 일부
+# 서점만 저장된 반쪽 상태가 될 수 있으므로, 대신 큐잉(줄서기) 방식을
+# 씁니다 - 실행 중인 워크플로는 절대 취소되지 않고, 다음 실행은 그
+# 워크플로가 끝난 뒤에 시작됩니다(그 사이에 새로 대기열에 들어온 실행이
+# 더 있으면 그중 가장 최신 것만 남고 나머지 "아직 시작하지 않은" 대기는
+# 자동으로 대체됩니다 - 이미 시작된 크롤링을 끊는 것과는 다릅니다).
 on:
   schedule:
-    - cron: "1 * * * *"
+    - cron: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
   workflow_dispatch:
+
+concurrency:
+  group: realtime-collection
+  cancel-in-progress: false
 
 jobs:
   kyobo-realtime:
     runs-on: ubuntu-latest
     outputs:
       outcome: ${{ steps.run.outcome }}
+      already_collected: ${{ steps.check.outputs.already_collected }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,8 +69,17 @@ jobs:
           pip install supabase playwright
           playwright install chromium
 
+      - name: Check if this hour is already collected
+        id: check
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python check_realtime_hour_collected.py "교보문고"
+
       - name: Run Kyobo Realtime
         id: run
+        if: steps.check.outputs.already_collected != 'true'
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -55,6 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       outcome: ${{ steps.run.outcome }}
+      already_collected: ${{ steps.check.outputs.already_collected }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,8 +105,17 @@ jobs:
           pip install supabase playwright beautifulsoup4
           playwright install chromium
 
+      - name: Check if this hour is already collected
+        id: check
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python check_realtime_hour_collected.py "예스24"
+
       - name: Run Yes24 Realtime
         id: run
+        if: steps.check.outputs.already_collected != 'true'
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -81,6 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       outcome: ${{ steps.run.outcome }}
+      already_collected: ${{ steps.check.outputs.already_collected }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,8 +141,17 @@ jobs:
           pip install supabase playwright beautifulsoup4
           playwright install chromium
 
+      - name: Check if this hour is already collected
+        id: check
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python check_realtime_hour_collected.py "알라딘"
+
       - name: Run Aladin Realtime
         id: run
+        if: steps.check.outputs.already_collected != 'true'
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -110,28 +165,44 @@ jobs:
     steps:
       - name: Check overall realtime collection result
         run: |
-          declare -A results=(
+          # already_collected=true인 서점은 이번 실행에서 크롤링을 의도적으로
+          # 건너뛴 것(steps.run이 "skipped")이라 outcome은 success가 아니지만,
+          # 이는 실패가 아니라 "이번 시간대 데이터가 이미 정상적으로 있어서
+          # 중복 수집을 피한 정상 상태"입니다. 그래서 outcome=success이거나
+          # already_collected=true인 서점을 모두 "정상"으로 집계합니다.
+          declare -A outcomes=(
             ["Kyobo Realtime"]="${{ needs.kyobo-realtime.outputs.outcome }}"
             ["Yes24 Realtime"]="${{ needs.yes24-realtime.outputs.outcome }}"
             ["Aladin Realtime"]="${{ needs.aladin-realtime.outputs.outcome }}"
           )
+          declare -A already_collected=(
+            ["Kyobo Realtime"]="${{ needs.kyobo-realtime.outputs.already_collected }}"
+            ["Yes24 Realtime"]="${{ needs.yes24-realtime.outputs.already_collected }}"
+            ["Aladin Realtime"]="${{ needs.aladin-realtime.outputs.already_collected }}"
+          )
 
           echo "=== 실시간 수집 서점별 결과 ==="
-          success_count=0
-          for name in "${!results[@]}"; do
-            outcome="${results[$name]}"
-            echo "  - ${name}: ${outcome:-(job 실패로 실행되지 않음)}"
+          ok_count=0
+          for name in "${!outcomes[@]}"; do
+            outcome="${outcomes[$name]}"
+            skipped="${already_collected[$name]}"
             if [ "$outcome" = "success" ]; then
-              success_count=$((success_count + 1))
+              echo "  - ${name}: success (이번 회차 신규 수집 완료)"
+              ok_count=$((ok_count + 1))
+            elif [ "$skipped" = "true" ]; then
+              echo "  - ${name}: skipped (이번 시간대 데이터가 이미 있어 정상적으로 건너뜀)"
+              ok_count=$((ok_count + 1))
+            else
+              echo "  - ${name}: ${outcome:-(job 실패로 실행되지 않음)}"
             fi
           done
 
           echo ""
-          echo "성공한 서점 수: ${success_count} / ${#results[@]}"
+          echo "정상(success 또는 skipped) 서점 수: ${ok_count} / ${#outcomes[@]}"
 
-          if [ "$success_count" -eq 0 ]; then
+          if [ "$ok_count" -eq 0 ]; then
             echo "::error::3개 서점 실시간 수집이 전부 실패했습니다. 워크플로를 실패로 표시합니다."
             exit 1
           fi
 
-          echo "최소 1개 이상의 서점 실시간 수집이 성공했습니다."
+          echo "최소 1개 이상의 서점이 정상(success 또는 skipped)입니다."
