@@ -714,7 +714,14 @@ export default function Dashboard({
   return (
     <div className="page-shell">
       <div className="header">
-        <img src="/logo.png" alt="위즈덤하우스" className="brand-logo" />
+        <button
+          type="button"
+          className="brand-logo-button"
+          onClick={() => selectTab(TOTAL_CATEGORY)}
+          aria-label="종합 베스트셀러 홈으로 이동"
+        >
+          <img src="/logo.png" alt="위즈덤하우스" className="brand-logo" />
+        </button>
         <h1>{isRealtime ? "실시간 베스트셀러 현황" : "주간 베스트셀러 현황"}</h1>
         <div className="meta">
           {formatDateTime(activeCollectedAt)} ({isRealtime ? "실시간 데이터는 수집·반영에 시간이 걸릴 수 있습니다" : "매일 KST 07:00 갱신"})
