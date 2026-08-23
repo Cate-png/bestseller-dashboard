@@ -58,7 +58,12 @@ export default function RankHistoryChart({ series, bookstores }) {
   const tSpan = maxT - minT || 1;
 
   const minRank = 1;
-  const maxRank = Math.max(10, ...allPoints.map((p) => p.rank));
+  // Y축 최대값은 항상 5위 단위로 깔끔하게 맞춥니다 - 실제 데이터의 최저
+  // 순위(가장 큰 숫자)를 5의 배수로 올림해서, 데이터가 절대 잘리지 않으면서도
+  // 눈금이 1/5/10/15/20/25...처럼 고정된 간격을 유지하게 합니다(예: 18위 ->
+  // 20위, 24위 -> 25위, 37위 -> 40위). 25위 등으로 상한을 고정하지 않습니다.
+  const rawMaxRank = Math.max(1, ...allPoints.map((p) => p.rank));
+  const maxRank = Math.ceil(rawMaxRank / 5) * 5;
 
   const xScale = (t) => PAD.left + ((t - minT) / tSpan) * PLOT_W;
   // rank가 작을수록(1위) 위쪽(작은 y)에 오도록 - SVG는 y가 아래로 갈수록
@@ -66,11 +71,11 @@ export default function RankHistoryChart({ series, bookstores }) {
   const yScale = (rank) =>
     PAD.top + ((rank - minRank) / (maxRank - minRank || 1)) * PLOT_H;
 
+  // 눈금은 1위 + 5위 단위(5/10/15/.../maxRank)로 고정합니다.
   const yTicks = useMemo(() => {
-    const ticks = new Set([1, maxRank]);
-    const step = Math.max(1, Math.round(maxRank / 4));
-    for (let r = step; r < maxRank; r += step) ticks.add(r);
-    return [...ticks].sort((a, b) => a - b);
+    const ticks = [1];
+    for (let r = 5; r <= maxRank; r += 5) ticks.push(r);
+    return ticks;
   }, [maxRank]);
 
   const xTicks = [minT, minT + tSpan / 2, maxT];
