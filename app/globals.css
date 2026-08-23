@@ -512,6 +512,102 @@ body {
   font-size: 12px;
 }
 
+/* "급상승 도서" 카드 전용 3열 행(순위 | 도서명·저자/출판사 | 등락).
+   다른 트렌드 카드가 쓰는 .trend-item*과는 완전히 분리된 클래스라 다른
+   카드(동시 상승, 꾸준한 강세 등)의 표시에는 영향을 주지 않습니다. */
+.trend-row-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid #e5e5e5;
+  font-size: 11px;
+  font-weight: 600;
+  color: #999;
+}
+
+.trend-row-header-rank {
+  width: 34px;
+  flex-shrink: 0;
+}
+
+.trend-row-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.trend-row-header-change {
+  width: 52px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.trend-row-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trend-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.trend-row:last-child {
+  border-bottom: none;
+}
+
+.trend-row-rank {
+  width: 34px;
+  flex-shrink: 0;
+  padding-top: 1px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.trend-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.trend-row-title {
+  font-weight: 700;
+  color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend-row-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend-row-change {
+  width: 52px;
+  flex-shrink: 0;
+  padding-top: 1px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.trend-row-change.up { color: #d92626; }
+.trend-row-change.down { color: #2563eb; }
+.trend-row-change.flat { color: #aaa; }
+
 .realtime-insight-section {
   padding: 8px 24px 32px 24px;
 }
@@ -935,6 +1031,45 @@ body {
 
   .realtime-store-columns {
     grid-template-columns: 1fr;
+  }
+
+  /* 급상승 도서 카드: 모바일에서도 "순위 | 도서명 | 등락"이 한 줄에
+     고정되도록 rank/change는 폭만 줄이고, 행 자체는 계속 가로(flex-row)
+     로 유지합니다(세로로 쌓지 않음) - 등락이 아래 줄로 내려가거나
+     도서명과 겹치는 것을 막기 위함입니다. */
+  .trend-row-header {
+    font-size: 10px;
+  }
+
+  .trend-row-header-rank,
+  .trend-row-rank {
+    width: 30px;
+  }
+
+  .trend-row-header-change,
+  .trend-row-change {
+    width: 46px;
+  }
+
+  .trend-row {
+    padding: 7px 0;
+    gap: 6px;
+  }
+
+  .trend-row-rank {
+    font-size: 12px;
+  }
+
+  .trend-row-title {
+    font-size: 12.5px;
+  }
+
+  .trend-row-sub {
+    font-size: 11px;
+  }
+
+  .trend-row-change {
+    font-size: 12px;
   }
 
   .chart-modal-backdrop {

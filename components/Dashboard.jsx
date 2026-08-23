@@ -117,6 +117,37 @@ function RankChange({ rankChange, matchStatus }) {
   return <span className="rank-change flat">-</span>;
 }
 
+// "급상승 도서" 카드 전용 행. r.rank(서점의 실제 현재 순위)와
+// r.rank_change(직전 수집 대비 등락, lib/trends.js가 이미 계산해 저장해
+// 둔 값)를 그대로 매핑해서 보여줄 뿐, 목록 안에서의 배열 순번은 전혀
+// 사용하지 않습니다. 등락 표시(▲/▼)는 이 카드만의 표기 형식이라 기존
+// RankChange(↑/↓)와는 별도 컴포넌트로 분리했습니다 - 다른 카드의 표시는
+// 건드리지 않습니다.
+function TrendRiseChange({ rankChange }) {
+  if (typeof rankChange === "number" && rankChange > 0) {
+    return <span className="trend-row-change up">▲ {rankChange}</span>;
+  }
+  if (typeof rankChange === "number" && rankChange < 0) {
+    return <span className="trend-row-change down">▼ {Math.abs(rankChange)}</span>;
+  }
+  return <span className="trend-row-change flat">-</span>;
+}
+
+function TrendBookRow({ rank, title, author, publisher, rankChange }) {
+  return (
+    <li className="trend-row">
+      <span className="trend-row-rank">{rank}위</span>
+      <span className="trend-row-info">
+        <span className="trend-row-title">{title}</span>
+        <span className="trend-row-sub">
+          {author || "저자 미상"} · {publisher || "출판사 미상"}
+        </span>
+      </span>
+      <TrendRiseChange rankChange={rankChange} />
+    </li>
+  );
+}
+
 // 실시간 탭에서만 20위 이상 급상승(rank_change >= 20) 도서의 제목을
 // 볼드 처리하고 🔥를 붙여 표시하기 위한 플래그. 다른 탭(종합/분야별)에는
 // highlightSurge를 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
@@ -933,19 +964,25 @@ export default function Dashboard({
                     {(risingByStore[bookstore] || []).length === 0 ? (
                       <p className="trend-empty">데이터가 부족합니다.</p>
                     ) : (
-                      <ul className="trend-list">
-                        {risingByStore[bookstore].map((r) => (
-                          <li key={`${r.bookstore}-${r.isbn13}-rise`} className="trend-item">
-                            <span className="trend-item-title">{r.title}</span>
-                            <span className="trend-item-sub">
-                              {r.author || "저자 미상"} · {r.publisher || "출판사 미상"} ·{" "}
-                              <span className="trend-item-meta-up">
-                                ↑{r.rank_change} · {r.rank}위
-                              </span>
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
+                      <>
+                        <div className="trend-row-header">
+                          <span className="trend-row-header-rank">순위</span>
+                          <span className="trend-row-header-info">도서명 / 저자 / 출판사</span>
+                          <span className="trend-row-header-change">등락</span>
+                        </div>
+                        <ul className="trend-row-list">
+                          {risingByStore[bookstore].map((r) => (
+                            <TrendBookRow
+                              key={`${r.bookstore}-${r.isbn13}-rise`}
+                              rank={r.rank}
+                              title={r.title}
+                              author={r.author}
+                              publisher={r.publisher}
+                              rankChange={r.rank_change}
+                            />
+                          ))}
+                        </ul>
+                      </>
                     )}
                   </div>
                 ))}
