@@ -742,72 +742,116 @@ body {
 /* 모바일 최적화 */
 @media (max-width: 768px) {
   .header {
-    padding: 10px 12px;
+    padding: 8px 10px;
   }
 
   .brand-logo {
-    height: 24px;
-    margin-bottom: 6px;
+    height: 20px;
+    margin: 0 0 4px 0;
   }
 
   .header h1 {
-    font-size: 18px;
+    margin: 0 0 1px 0;
+    font-size: 15px;
   }
 
   .header .meta {
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .category-tabs {
-    gap: 6px;
+    margin-top: 5px;
+    gap: 5px;
   }
 
   .category-tab {
-    padding: 7px 12px;
-    font-size: 12.5px;
+    padding: 5px 10px;
+    font-size: 11.5px;
   }
 
+  /* 분야 필터(2단)는 모바일에서 줄바꿈하지 않고 한 줄로 유지한 채
+     가로 스크롤로 넘어가게 합니다 - 14개 분야가 여러 줄을 차지해
+     헤더가 길어지는 것을 막습니다. 스크롤바는 시각적으로 숨깁니다
+     (스크롤 동작 자체는 그대로 유지됨). */
+  .category-tabs-secondary {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    margin-top: 5px;
+    padding-top: 5px;
+    padding-bottom: 2px;
+  }
+
+  .category-tabs-secondary::-webkit-scrollbar {
+    display: none;
+  }
+
+  .category-tabs-secondary .category-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* 검색창은 항상 자기 줄(flex-basis 100%)을 차지하고, 날짜/시간
+     선택과 위즈덤하우스 필터는 그 아래 한 줄에 나란히 배치합니다
+     (필터 버튼이 화면 폭 전체를 차지하던 기존 구조 대신 내용 크기만큼만). */
   .controls {
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 6px;
+    margin-top: 6px;
   }
 
-  .controls .search-input,
-  .controls .date-input,
-  .controls .hour-select {
-    /* 세로(column) 배치에서는 flex-basis가 주축인 높이에 적용되므로,
-       데스크톱용 flex-basis(예: 검색창의 320px)를 auto로 되돌려 요소가
-       내용/패딩만큼의 자연스러운 높이를 갖게 합니다. */
-    flex: 0 0 auto;
+  .controls .search-input {
+    flex: 1 1 100%;
     width: 100%;
     max-width: none;
     min-width: 0;
-    font-size: 14px;
+    padding: 7px 10px;
+    font-size: 13.5px;
+  }
+
+  .controls .date-input,
+  .controls .hour-select {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    padding: 6px 8px;
+    font-size: 12.5px;
   }
 
   .controls button {
-    width: 100%;
-    padding: 9px 12px;
+    width: auto;
+    padding: 6px 12px;
+    font-size: 12.5px;
   }
 
   .controls-actions {
-    width: 100%;
-    margin-left: 0;
-    flex-direction: column;
-    align-items: stretch;
+    width: auto;
+    margin-left: auto;
+    flex-direction: row;
+    align-items: center;
     gap: 6px;
   }
 
   .columns {
     flex-direction: column;
-    gap: 12px;
-    padding: 12px 12px;
+    gap: 10px;
+    padding: 8px 10px;
   }
 
   .column {
     width: 100%;
+  }
+
+  .column-header {
+    padding: 9px 12px;
+    font-size: 14px;
   }
 
   .book-list {
@@ -827,14 +871,16 @@ body {
   }
 
   .book-row {
-    padding: 9px 10px;
-    gap: 8px;
+    padding: 7px 9px;
+    gap: 7px;
+    font-size: 12.5px;
     align-items: flex-start;
   }
 
   .rank {
-    width: 24px;
+    width: 22px;
     padding-top: 2px;
+    font-size: 11px;
   }
 
   .book-title {
@@ -854,8 +900,9 @@ body {
   }
 
   .rank-change {
-    width: 38px;
+    width: 36px;
     padding-top: 2px;
+    font-size: 11px;
   }
 
   .trend-section {
