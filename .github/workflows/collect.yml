@@ -9,7 +9,7 @@ name: Bestseller Collection
 
 on:
   schedule:
-    - cron: "0 21 * * *"
+    - cron: "30 21 * * *"
   workflow_dispatch:
 
 jobs:
