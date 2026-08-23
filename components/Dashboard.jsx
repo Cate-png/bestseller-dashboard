@@ -668,7 +668,7 @@ export default function Dashboard({
         <img src="/logo.png" alt="위즈덤하우스" className="brand-logo" />
         <h1>{isRealtime ? "실시간 베스트셀러 현황" : "주간 베스트셀러 현황"}</h1>
         <div className="meta">
-          {formatDateTime(activeCollectedAt)} ({isRealtime ? "매시간 KST 갱신" : "매일 KST 07:00 갱신"})
+          {formatDateTime(activeCollectedAt)} ({isRealtime ? "실시간 데이터는 수집·반영에 시간이 걸릴 수 있습니다" : "매일 KST 07:00 갱신"})
         </div>
         <div className="category-tabs category-tabs-primary">
           {primaryTabs.map((tab) => (
