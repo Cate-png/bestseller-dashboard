@@ -164,7 +164,7 @@ function BookRow({ row, highlightSurge, onShowHistory }) {
           aria-label="순위 변화 보기"
           onClick={() => onShowHistory(row.isbn13, row.title)}
         >
-          📈
+          추이
         </button>
       )}
       <RankChange rankChange={row.rank_change} matchStatus={row.match_status} />
