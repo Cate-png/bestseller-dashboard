@@ -48,7 +48,7 @@ GitHub Actions에서 실제 네트워크 응답을 확인한 근거):
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 try:
     from playwright.sync_api import sync_playwright
@@ -98,6 +98,11 @@ def load_realtime_list(page):
     그대로 46위)."""
     books = []
     excluded_count = 0
+    # 진단 전용(DB 저장 안 함): 교보 API가 각 항목에 붙이는 ymw(YYYYMMDDHH,
+    # 교보 자신이 판단하는 "이 데이터가 속한 시간대") 값을 수집합니다.
+    # resolvedAt(=collected_at, 우리 스크립트 시작 시각)과 이 ymw가 실제로
+    # 어떻게 어긋나는지 다음 회차부터 로그로 대조하기 위한 용도입니다.
+    ymw_values = set()
     pages_needed = -(-TARGET_COUNT // 20)  # TARGET_COUNT=100 -> 5페이지
 
     for page_num in range(1, pages_needed + 1):
@@ -108,6 +113,11 @@ def load_realtime_list(page):
         except Exception as e:
             print(f"   진단: {page_num}페이지 조회 실패: {e}. 여기서 중단합니다.")
             break
+
+        page_ymw = {item.get("ymw") for item in items if item.get("ymw")}
+        ymw_values |= page_ymw
+        if page_ymw:
+            print(f"   [진단] {page_num}페이지 항목들의 ymw(교보 기준 시간대): {sorted(page_ymw)}")
 
         page_books = []
         for item in items:
@@ -136,6 +146,9 @@ def load_realtime_list(page):
         print(f"진단: 목표({TARGET_COUNT}권)를 채우지 못했습니다({len(books)}권). 비도서 제외 및/또는 페이지 조회 실패가 원인일 수 있습니다.")
 
     books.sort(key=lambda b: b["rank"])
+    # 진단 전용: 함수 속성에만 남겨 main()에서 읽게 합니다. 기존 반환값(books)
+    # 모양이나 호출부 시그니처는 그대로 유지하기 위한 방식입니다.
+    load_realtime_list.last_ymw_values = ymw_values
     return books
 
 
@@ -197,6 +210,19 @@ def main():
             raise RuntimeError("실시간 목록에서 도서를 하나도 추출하지 못했습니다.")
 
         print(f"\n목록 수집 성공: {len(books)}권.\n")
+
+        # 진단 전용 로그(DB 저장 안 함): resolvedAt으로 쓰이는 collected_at
+        # (우리 스크립트 시작 시각)과 교보 API 자체가 붙인 ymw(교보가 판단하는
+        # "기준 시간대")를 나란히 남겨, 다음 회차부터 둘이 실제로 얼마나
+        # 어긋나는지 로그로 대조할 수 있게 합니다.
+        ymw_values = getattr(load_realtime_list, "last_ymw_values", set())
+        collected_at_kst = (
+            datetime.fromisoformat(collected_at) + timedelta(hours=9)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        print(
+            f"[진단] collected_at(UTC)={collected_at} (KST {collected_at_kst}) "
+            f"vs 교보 ymw(기준 시간대)={sorted(ymw_values) if ymw_values else '(관측 안 됨)'}"
+        )
     except Exception as e:
         error_message = str(e)
         print(f"\n교보문고 실시간 수집이 완전히 실패했습니다: {error_message}")
