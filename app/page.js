@@ -7,6 +7,8 @@ export const revalidate = 0;
 
 const BOOKSTORES = ["교보문고", "예스24", "알라딘"];
 const CATEGORY = "종합";
+const STEADY_ROUNDS = 7;
+const STEADY_TOP_N = 20;
 
 // 특정 서점 + 분야의 "가장 최근 수집 스냅샷"을 가져옵니다.
 // (예전에는 collection_runs에서 "이 서점의 가장 최근 성공한 run"을 먼저 찾은 뒤
@@ -70,17 +72,41 @@ async function getLatestRealtimeRankings(client, bookstore) {
   return data || [];
 }
 
-async function getWindowRows(client, hours) {
-  const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+// "꾸준한 강세" 계산(lib/steadyBooks.js)에 쓸 원본 행을 가져옵니다.
+// 이 서점의 최근 collected_at 중 서로 다른 값을 최신순으로 rounds개 찾고,
+// 그 회차들에서 TOP N(기본 20) 이내였던 행만 골라 돌려줍니다. 기존
+// rankings 테이블만 그대로 조회하고(스키마 변경 없음), 매일 1회 수집이라
+// 회차당 최대 100행이므로 넉넉하게 rounds*120행까지만 살펴봅니다.
+async function getRecentTopRounds(client, bookstore, category, rounds, topN) {
+  const recent = await client
+    .from("rankings")
+    .select("collected_at")
+    .eq("bookstore", bookstore)
+    .eq("category", category)
+    .order("collected_at", { ascending: false })
+    .limit(rounds * 120);
+  if (recent.error) throw recent.error;
+
+  const roundTimestamps = [];
+  for (const row of recent.data || []) {
+    if (!roundTimestamps.includes(row.collected_at)) {
+      roundTimestamps.push(row.collected_at);
+      if (roundTimestamps.length >= rounds) break;
+    }
+  }
+  if (roundTimestamps.length === 0) return [];
+
   const { data, error } = await client
     .from("rankings")
-    .select("rank, title, author, publisher, isbn13, collected_at, bookstore")
-    .eq("category", CATEGORY)
-    .gte("collected_at", since)
-    .order("collected_at", { ascending: true });
-
+    .select("collected_at, rank, title, author, publisher, isbn13")
+    .eq("bookstore", bookstore)
+    .eq("category", category)
+    .in("collected_at", roundTimestamps)
+    .lte("rank", topN)
+    .order("collected_at", { ascending: false });
   if (error) throw error;
-  return data || [];
+
+  return (data || []).map((row) => ({ ...row, bookstore }));
 }
 
 export default async function Page() {
@@ -118,10 +144,9 @@ export default async function Page() {
   const realtimeData = {};
   const realtimeErrors = {};
 
-  let window6h = [];
-  let window24h = [];
+  let steadyRows = [];
 
-  // 종합 / 실시간 / 트렌드 윈도우(6h·24h)는 서로 전혀 참조하지 않는
+  // 종합 / 실시간 / "꾸준한 강세"(최근 7회 TOP20)는 서로 전혀 참조하지 않는
   // 독립적인 조회라 순서대로 기다릴 이유가 없습니다. 예전에는 이 셋이
   // 코드 순서대로 하나씩 끝나야 다음이 시작되는 구조였고(종합만도 서점
   // 3곳을 for...of로 순차 조회해 쿼리 6개를 한 줄로 세워 기다렸습니다),
@@ -165,13 +190,15 @@ export default async function Page() {
     ),
     (async () => {
       try {
-        [window6h, window24h] = await Promise.all([
-          getWindowRows(client, 6),
-          getWindowRows(client, 24),
-        ]);
+        const perStore = await Promise.all(
+          BOOKSTORES.map((bookstore) =>
+            getRecentTopRounds(client, bookstore, CATEGORY, STEADY_ROUNDS, STEADY_TOP_N)
+          )
+        );
+        steadyRows = perStore.flat();
       } catch (e) {
-        // 트렌드 구간 조회가 실패해도 기본 화면은 정상적으로 보여줘야 하므로
-        // 여기서는 조용히 빈 배열로 둡니다. (Dashboard 쪽에서 "데이터 부족" 처리)
+        // 조회가 실패해도 기본 화면은 정상적으로 보여줘야 하므로 여기서는
+        // 조용히 빈 배열로 둡니다. (Dashboard 쪽에서 "데이터 부족" 처리)
       }
     })(),
   ]);
@@ -182,8 +209,7 @@ export default async function Page() {
       storeData={storeData}
       errors={errors}
       collectedAt={latestCollectedAt}
-      window6h={window6h}
-      window24h={window24h}
+      steadyRows={steadyRows}
       categories={CATEGORIES}
       categoryData={categoryData}
       categoryErrors={categoryErrors}

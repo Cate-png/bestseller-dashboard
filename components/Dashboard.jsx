@@ -8,13 +8,8 @@ import {
   getNewEntries,
   getSimultaneousRise,
   getCommonBooks,
-  getWindowTrend,
 } from "../lib/trends";
-import {
-  buildUniqueBooks,
-  extractTrendKeywords,
-  extractNotableFlows,
-} from "../lib/insights";
+import { getSteadyBooks } from "../lib/steadyBooks";
 import {
   getRealtimeSurgingBooks,
   getRealtimeSimultaneousRise,
@@ -78,15 +73,21 @@ function todayLocalHourStr() {
   return String(new Date().getHours()).padStart(2, "0");
 }
 
-// lib/trends.js가 이미 계산해 둔 결과(rising/newEntries/trend6h/
-// trend24h)를 bookstore 필드로만 나누는 순수 표시용 그룹화입니다. 새로운
-// 집계/계산은 하지 않고, 각 서점 목록 안의 항목·순서·값은 그대로 유지합니다.
+// lib/trends.js가 이미 계산해 둔 결과(rising/newEntries)를 bookstore
+// 필드로만 나누는 순수 표시용 그룹화입니다. 새로운 집계/계산은 하지 않고,
+// 각 서점 목록 안의 항목·순서·값은 그대로 유지합니다.
 function groupRowsByStore(rows, bookstores) {
   const byStore = {};
   for (const bookstore of bookstores) {
     byStore[bookstore] = rows.filter((r) => r.bookstore === bookstore);
   }
   return byStore;
+}
+
+// "꾸준한 강세" 카드에서 서점별 현재 순위를 표시할 때 씁니다. 그 서점에서
+// 지금 TOP20 밖이면(currentRankByStore에 값이 없으면) "권외"로 보여줍니다.
+function formatSteadyRank(rank) {
+  return typeof rank === "number" ? `${rank}위` : "권외";
 }
 
 function matchesSearch(row, query) {
@@ -293,8 +294,7 @@ export default function Dashboard({
   storeData,
   errors,
   collectedAt,
-  window6h,
-  window24h,
+  steadyRows = [],
   categories = [],
   categoryData = {},
   categoryErrors = {},
@@ -641,16 +641,18 @@ export default function Dashboard({
     [allRows]
   );
   const commonBooks = useMemo(() => getCommonBooks(allRows, 2, 10), [allRows]);
-  const trend6h = useMemo(() => getWindowTrend(window6h || [], 10), [window6h]);
-  const trend24h = useMemo(
-    () => getWindowTrend(window24h || [], 10),
-    [window24h]
+
+  // "꾸준한 강세": 최근 7회 수집 중 TOP20을 5회 이상 유지한 도서. steadyRows는
+  // app/page.js가 이미 "최근 7회 x TOP20 이내"로 걸러 내려준 rankings 원본이고,
+  // 여기서는 lib/steadyBooks.js로 순수 집계만 합니다.
+  const steadyResult = useMemo(
+    () => getSteadyBooks(steadyRows, { bookstores, totalRounds: 7, minRounds: 5, minHits: 5, limit: 10 }),
+    [steadyRows, bookstores]
   );
 
   // 종합 탭 하단 트렌드 카드를 실시간 탭과 동일한 서점별 3열 구조로 보여주기
-  // 위한 표시 전용 그룹화. rising/newEntries/trend6h/trend24h 자체의
-  // 계산(lib/trends.js)은 그대로이고, 이미 계산된 결과를 bookstore로 나누기만
-  // 합니다.
+  // 위한 표시 전용 그룹화. rising/newEntries 자체의 계산(lib/trends.js)은
+  // 그대로이고, 이미 계산된 결과를 bookstore로 나누기만 합니다.
   const risingByStore = useMemo(
     () => groupRowsByStore(rising, bookstores),
     [rising, bookstores]
@@ -658,27 +660,6 @@ export default function Dashboard({
   const newEntriesByStore = useMemo(
     () => groupRowsByStore(newEntries, bookstores),
     [newEntries, bookstores]
-  );
-  const trend6hByStore = useMemo(
-    () => groupRowsByStore(trend6h, bookstores),
-    [trend6h, bookstores]
-  );
-  const trend24hByStore = useMemo(
-    () => groupRowsByStore(trend24h, bookstores),
-    [trend24h, bookstores]
-  );
-
-  const activeUniqueBooks = useMemo(
-    () => buildUniqueBooks(activeStoreData, bookstores),
-    [activeStoreData, bookstores]
-  );
-  const trendKeywords = useMemo(
-    () => extractTrendKeywords(activeUniqueBooks, 10),
-    [activeUniqueBooks]
-  );
-  const notableFlows = useMemo(
-    () => extractNotableFlows(activeUniqueBooks, 3),
-    [activeUniqueBooks]
   );
 
   // 실시간 탭 전용 인사이트: realtimeData만 사용하고(rankings/categoryData와
@@ -970,106 +951,33 @@ export default function Dashboard({
             )}
           </TrendCard>
 
-          <TrendCard title="최근 6시간 순위 변화" className="trend-card-wide">
-            {trend6h.length === 0 ? (
-              <p className="trend-empty">
-                아직 6시간 범위의 비교 데이터가 충분하지 않습니다. (수집이 반복될수록
-                채워집니다)
-              </p>
+          <TrendCard title="꾸준한 강세" className="trend-card-wide">
+            <p className="trend-card-desc">
+              최근 수집 기준 상위권을 꾸준히 유지한 도서입니다.
+            </p>
+            {steadyResult.insufficientData || steadyResult.books.length === 0 ? (
+              <p className="trend-empty">아직 충분한 비교 데이터가 없습니다.</p>
             ) : (
-              <div className="realtime-store-columns">
-                {bookstores.map((bookstore) => (
-                  <div className="realtime-store-column" key={bookstore}>
-                    <div
-                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
-                    >
-                      {bookstore}
-                    </div>
-                    {(trend6hByStore[bookstore] || []).length === 0 ? (
-                      <p className="trend-empty">데이터가 부족합니다.</p>
-                    ) : (
-                      <ul>
-                        {trend6hByStore[bookstore].map((r, i) => (
-                          <li key={i}>
-                            {r.title} ({r.fromRank}위 → {r.toRank}위,{" "}
-                            {r.change > 0 ? `↑${r.change}` : `↓${Math.abs(r.change)}`})
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+              <ul className="trend-list">
+                {steadyResult.books.map((b) => (
+                  <li key={b.isbn13} className="trend-item">
+                    <span className="trend-item-title">{b.title}</span>
+                    <span className="trend-item-sub">{b.author || "저자 미상"}</span>
+                    <span className="trend-item-sub">
+                      교보 {formatSteadyRank(b.currentRankByStore["교보문고"])} · 예스24{" "}
+                      {formatSteadyRank(b.currentRankByStore["예스24"])} · 알라딘{" "}
+                      {formatSteadyRank(b.currentRankByStore["알라딘"])}
+                    </span>
+                    <span className="trend-item-sub trend-item-meta-up">
+                      {steadyResult.roundsAvailable}회 중 {b.hitCount}회 TOP20 · 평균{" "}
+                      {b.avgRank.toFixed(1)}위
+                    </span>
+                  </li>
                 ))}
-              </div>
-            )}
-          </TrendCard>
-
-          <TrendCard title="최근 24시간 순위 변화" className="trend-card-wide">
-            {trend24h.length === 0 ? (
-              <p className="trend-empty">
-                아직 24시간 범위의 비교 데이터가 충분하지 않습니다. (수집이 반복될수록
-                채워집니다)
-              </p>
-            ) : (
-              <div className="realtime-store-columns">
-                {bookstores.map((bookstore) => (
-                  <div className="realtime-store-column" key={bookstore}>
-                    <div
-                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
-                    >
-                      {bookstore}
-                    </div>
-                    {(trend24hByStore[bookstore] || []).length === 0 ? (
-                      <p className="trend-empty">데이터가 부족합니다.</p>
-                    ) : (
-                      <ul>
-                        {trend24hByStore[bookstore].map((r, i) => (
-                          <li key={i}>
-                            {r.title} ({r.fromRank}위 → {r.toRank}위,{" "}
-                            {r.change > 0 ? `↑${r.change}` : `↓${Math.abs(r.change)}`})
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-              </div>
+              </ul>
             )}
           </TrendCard>
         </div>
-      </div>
-      )}
-
-      {!isRealtime && !isPastSelection && (
-      <div className="insight-section">
-        <h2>트렌드 키워드</h2>
-        {trendKeywords.length === 0 ? (
-          <p className="trend-empty">
-            아직 두드러진 키워드가 없습니다. (겹치는 표현이 2권 이상일 때
-            표시됩니다)
-          </p>
-        ) : (
-          <div className="keyword-list">
-            {trendKeywords.map(({ keyword, bookCount }) => (
-              <span className="keyword-chip" key={keyword}>
-                {keyword} <span className="keyword-count">{bookCount}권</span>
-              </span>
-            ))}
-          </div>
-        )}
-
-        <h2 className="insight-subheading">주목할 흐름</h2>
-        {notableFlows.length === 0 ? (
-          <p className="trend-empty">아직 눈에 띄는 흐름이 없습니다.</p>
-        ) : (
-          <ul className="flow-list">
-            {notableFlows.map((flow, i) => (
-              <li key={i}>
-                {flow.description}
-                <span className="flow-count">{flow.bookCount}권</span>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
       )}
 

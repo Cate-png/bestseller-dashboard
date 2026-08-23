@@ -458,6 +458,12 @@ body {
   margin: 0 0 8px 0;
 }
 
+.trend-card-desc {
+  margin: -4px 0 10px 0;
+  font-size: 12px;
+  color: #888;
+}
+
 .trend-card ul {
   margin: 0;
   padding-left: 18px;
@@ -580,58 +586,6 @@ body {
 .realtime-store-column .trend-empty {
   padding: 8px 10px;
   margin: 0;
-}
-
-.insight-section {
-  padding: 8px 24px 32px 24px;
-}
-
-.insight-section h2 {
-  font-size: 17px;
-  margin: 0 0 12px 0;
-}
-
-.insight-section .insight-subheading {
-  margin-top: 24px;
-}
-
-.keyword-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.keyword-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 13px;
-  color: #1a1a1a;
-}
-
-.keyword-count {
-  font-size: 11px;
-  color: #888;
-}
-
-.flow-list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-}
-
-.flow-list li {
-  margin-bottom: 8px;
-}
-
-.flow-count {
-  margin-left: 6px;
-  font-size: 12px;
-  color: #888;
 }
 
 /* 도서별 순위 변화 차트 모달 */
@@ -916,10 +870,6 @@ body {
     padding: 12px;
   }
 
-  .insight-section {
-    padding: 8px 12px 24px;
-  }
-
   .realtime-insight-section {
     padding: 8px 12px 24px;
   }
@@ -930,11 +880,6 @@ body {
 
   .realtime-store-columns {
     grid-template-columns: 1fr;
-  }
-
-  .keyword-chip {
-    padding: 6px 12px;
-    font-size: 12.5px;
   }
 
   .chart-modal-backdrop {
