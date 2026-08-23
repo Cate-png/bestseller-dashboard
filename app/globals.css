@@ -171,10 +171,7 @@ body {
 
 /* 위즈덤하우스 필터는 눈에 잘 띄도록 카테고리 탭의 활성 색과 동일한
    노란색을 기본 배경으로 씁니다(켜져 있을 때만이 아니라 항상). hover와
-   켜진 상태(.active)는 이 필터가 정확히 "위즈덤하우스"를 가리킨다는
-   것을 명확히 하기 위해 위즈덤하우스 브랜드 컬러(#fff89a)를 그대로
-   씁니다. 배경이 매우 밝은 색이라 기본 상태와 동일하게 어두운 글자
-   (color:#1a1a1a, 위에서 상속)를 그대로 유지합니다. */
+   켜진 상태(.active)는 위즈덤하우스 브랜드 컬러(#fff078)를 씁니다. */
 .controls-actions .wisdom-filter-button {
   background: #e0a800;
   color: #1a1a1a;
@@ -183,13 +180,13 @@ body {
 }
 
 .controls-actions .wisdom-filter-button:hover {
-  background: #fff89a;
-  border-color: #fff89a;
+  background: #fff078;
+  border-color: #fff078;
 }
 
 .controls-actions .wisdom-filter-button.active {
-  background: #fff89a;
-  border-color: #fff89a;
+  background: #fff078;
+  border-color: #fff078;
 }
 
 .controls-actions .reset-button {
@@ -369,7 +366,7 @@ body {
 .wisdom-badge {
   display: inline-block;
   font-size: 10px;
-  background: #fff89a;
+  background: #fff078;
   color: #1a1a1a;
   border-radius: 4px;
   padding: 1px 5px;
