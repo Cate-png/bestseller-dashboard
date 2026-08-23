@@ -169,21 +169,24 @@ body {
   flex: 0 0 auto;
 }
 
-/* 위즈덤하우스 필터의 기본(idle) 배경은 기존 노란색(#e0a800)을 그대로
-   씁니다. hover만으로는 색이 바뀌지 않고(별도 :hover 규칙 없음), 실제로
-   켜진 상태(.active)일 때만 위즈덤하우스 브랜드 컬러(#fff078)로
-   바뀝니다 - 이미 켜진 버튼을 hover해도 .active 규칙이 그대로 적용되어
-   같은 색을 유지합니다. */
+/* 위즈덤하우스 필터의 기본(idle, 클릭하기 전) 배경은 위즈덤하우스
+   브랜드 컬러(#fff078)를 씁니다. 마우스를 올리거나(hover) 실제로
+   켜진 상태(.active)가 되면 #e0a800으로 바뀝니다. */
 .controls-actions .wisdom-filter-button {
-  background: #e0a800;
+  background: #fff078;
   color: #1a1a1a;
-  border-color: #e0a800;
+  border-color: #fff078;
   font-weight: 600;
 }
 
+.controls-actions .wisdom-filter-button:hover {
+  background: #e0a800;
+  border-color: #e0a800;
+}
+
 .controls-actions .wisdom-filter-button.active {
-  background: #fff078;
-  border-color: #fff078;
+  background: #e0a800;
+  border-color: #e0a800;
 }
 
 .controls-actions .reset-button {
