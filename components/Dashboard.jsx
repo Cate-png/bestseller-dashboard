@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isWisdomHouse } from "../lib/wisdomhouse";
 import {
   getRisingBooks,
@@ -310,6 +310,7 @@ export default function Dashboard({
   // 원래 하던 대로 동작합니다.
   const searchParams = useSearchParams();
   const pathname = usePathname();
+  const router = useRouter();
   const selectedCategory = useMemo(
     () => resolveSelectedCategoryFromParams(searchParams, categories),
     [searchParams, categories]
@@ -340,6 +341,17 @@ export default function Dashboard({
   // 결과만 캐시합니다 - 종합/실시간 탭은 이 캐시를 전혀 쓰지 않고 기존과
   // 동일하게 탭/날짜가 바뀔 때마다 항상 다시 조회합니다.
   const [categoryTodayCache, setCategoryTodayCache] = useState({});
+
+  // 실시간 탭에서 사용자가 날짜/시 드롭다운을 "직접" 바꿔서 과거 시점을
+  // 보고 있는 중인지 추적합니다. isPastSelection(아래)은 "선택값 !=
+  // 지금"만 비교하므로, 탭을 19시에 열어두고 20시가 될 때까지 아무것도
+  // 안 한 경우("아직 갱신 안 된 지금")와 사용자가 18시를 일부러 선택한
+  // 경우("명시적 과거 조회")를 구분하지 못합니다. 이 ref가 그 구분을
+  // 담당합니다: 날짜/시 입력을 사용자가 직접 바꿀 때만 true로 세팅하고,
+  // "지금"으로 동기화할 때(마운트, 지금으로 돌아가기, 아래 자동/수동
+  // 갱신)는 false로 되돌립니다. true인 동안은 시간대 자동 감지·새로고침
+  // 버튼의 "지금으로 점프" 동작 둘 다 이 선택을 절대 건드리지 않습니다.
+  const userAdjustedRealtimeRef = useRef(false);
 
   // 탭을 1단(종합/실시간 베스트셀러)과 2단(분야별 14개)으로 분리해서
   // 렌더링합니다. categories(=lib/categories.js의 CATEGORIES)의 배열
@@ -402,11 +414,28 @@ export default function Dashboard({
   // 것과 완전히 동일한 경로).
   function returnToNow() {
     if (isRealtime) {
+      userAdjustedRealtimeRef.current = false;
       setHistoryRealtimeDate(todayLocalDateStr());
       setHistoryRealtimeHour(todayLocalHourStr());
+      router.refresh();
     } else {
       setHistoryDate(todayLocalDateStr());
     }
+  }
+
+  // 실시간 탭을 "지금"으로 맞출 때 공용으로 씁니다(새로고침 버튼, 아래
+  // 시간대 자동 감지 둘 다 여기로 옵니다). 날짜/시 상태만 지금으로
+  // 맞추면 화면은 여전히 이 페이지가 "맨 처음 열렸을 때"의 서버 props
+  // (realtimeData, app/page.js가 내려준 값)를 그대로 쓰게 됩니다 -
+  // historyMode가 아닐 때 activeStoreData는 realtimeData를 직접 쓰기
+  // 때문입니다. 그래서 router.refresh()로 서버 컴포넌트를 다시 실행시켜
+  // realtime_rankings의 실제 최신 스냅샷을 새로 받아옵니다(app/page.js는
+  // force-dynamic + revalidate=0이라 캐시 없이 항상 DB를 다시 조회함).
+  function syncRealtimeToNow() {
+    userAdjustedRealtimeRef.current = false;
+    setHistoryRealtimeDate(todayLocalDateStr());
+    setHistoryRealtimeHour(todayLocalHourStr());
+    router.refresh();
   }
 
   // 마운트 후 클라이언트에서만 오늘 날짜/지금 시로 채웁니다(서버 렌더링
@@ -416,6 +445,27 @@ export default function Dashboard({
     setHistoryRealtimeDate(todayLocalDateStr());
     setHistoryRealtimeHour(todayLocalHourStr());
   }, []);
+
+  // 실시간 탭을 열어둔 채로 시(hour)가 바뀌면(예: 19시 -> 20시) 자동으로
+  // 최신 시간대를 인식하게 합니다. 분 단위로 API를 호출하지 않도록, 이
+  // 타이머는 로컬 시각 비교만 가볍게 반복하다가 실제로 날짜/시가 바뀐
+  // 경우에만 syncRealtimeToNow()를 호출합니다(그 안에서 딱 1번 서버를
+  // 다시 조회). 사용자가 과거 시간대를 직접 선택해 보고 있는 중
+  // (userAdjustedRealtimeRef)에는 절대 건드리지 않습니다.
+  useEffect(() => {
+    if (!isRealtime) return;
+    const HOUR_CHECK_INTERVAL_MS = 30000;
+    const id = setInterval(() => {
+      if (userAdjustedRealtimeRef.current) return;
+      const nowDate = todayLocalDateStr();
+      const nowHour = todayLocalHourStr();
+      if (nowDate !== historyRealtimeDate || nowHour !== historyRealtimeHour) {
+        syncRealtimeToNow();
+      }
+    }, HOUR_CHECK_INTERVAL_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRealtime, historyRealtimeDate, historyRealtimeHour]);
 
   // 날짜 입력값이 바뀌거나(오늘로 되돌리는 경우 포함) 탭/분야가 바뀔
   // 때마다 자동으로 다시 조회합니다. 별도의 "조회" 버튼은 없습니다. 단,
@@ -709,7 +759,19 @@ export default function Dashboard({
           <button
             type="button"
             className={`refresh-button${historyLoading ? " is-loading" : ""}`}
-            onClick={() => fetchHistory()}
+            onClick={() => {
+              // 실시간 탭 + 사용자가 과거 시간대를 직접 선택한 게 아니라면
+              // ("지금"을 보고 있는 중이라면) 새로고침은 현재 KST 시간대로
+              // 먼저 맞춘 뒤 조회합니다 - 그래야 19시에 열어둔 탭에서 20시가
+              // 된 뒤 눌러도 20시 데이터가 나옵니다. 과거 시간대를 직접
+              // 보고 있는 중이면 그 선택을 그대로 두고 같은 시점만 다시
+              // 조회합니다(강제로 지금으로 이동시키지 않음).
+              if (isRealtime && !userAdjustedRealtimeRef.current) {
+                syncRealtimeToNow();
+              } else {
+                fetchHistory();
+              }
+            }}
             disabled={historyLoading}
             aria-label="현재 화면 데이터 새로고침"
             title="현재 화면 데이터 새로고침"
@@ -753,12 +815,18 @@ export default function Dashboard({
                 type="date"
                 className="date-input"
                 value={historyRealtimeDate}
-                onChange={(e) => setHistoryRealtimeDate(e.target.value)}
+                onChange={(e) => {
+                  userAdjustedRealtimeRef.current = true;
+                  setHistoryRealtimeDate(e.target.value);
+                }}
               />
               <select
                 className="hour-select"
                 value={historyRealtimeHour}
-                onChange={(e) => setHistoryRealtimeHour(e.target.value)}
+                onChange={(e) => {
+                  userAdjustedRealtimeRef.current = true;
+                  setHistoryRealtimeHour(e.target.value);
+                }}
                 aria-label="조회 시각(시)"
               >
                 {Array.from({ length: 24 }, (_, hour) => {
