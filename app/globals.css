@@ -170,8 +170,11 @@ body {
 }
 
 /* 위즈덤하우스 필터는 눈에 잘 띄도록 카테고리 탭의 활성 색과 동일한
-   노란색을 기본 배경으로 씁니다(켜져 있을 때만이 아니라 항상). 켜진
-   상태(.active)는 한 단계 더 짙게 해서 지금 필터링 중임을 구분합니다. */
+   노란색을 기본 배경으로 씁니다(켜져 있을 때만이 아니라 항상). hover와
+   켜진 상태(.active)는 이 필터가 정확히 "위즈덤하우스"를 가리킨다는
+   것을 명확히 하기 위해, 임의로 고른 색이 아니라 이 사이트에서 이미
+   위즈덤하우스 출판사 표시에 쓰고 있는 브랜드 컬러(.wisdom-badge와
+   동일한 #d97706)를 그대로 재사용합니다. */
 .controls-actions .wisdom-filter-button {
   background: #e0a800;
   color: #1a1a1a;
@@ -180,16 +183,13 @@ body {
 }
 
 .controls-actions .wisdom-filter-button:hover {
-  background: #af8300;
-  border-color: #af8300;
+  background: #d97706;
+  border-color: #d97706;
 }
 
 .controls-actions .wisdom-filter-button.active {
-  background: #8d6a00;
-  border-color: #8d6a00;
-  /* 이 단계는 배경이 충분히 짙어져서, 다른 노란 상태와 달리 어두운
-     글자 대신 흰 글자가 대비(가독성)상 더 낫습니다. */
-  color: #fff;
+  background: #d97706;
+  border-color: #d97706;
 }
 
 .controls-actions .reset-button {
@@ -279,10 +279,7 @@ body {
 
 .column-header.kyobo { background: #2d4a3e; }
 .column-header.yes24 { background: #1e3a8a; }
-/* 알라딘만 채도 낮은 상아 골드(#C9B458 기준) - 배경이 밝아서 기본 흰
-   글자(.column-header의 color:#fff)로는 대비가 부족해 이 서점만 따로
-   어두운 글자로 덮어씁니다. */
-.column-header.aladin { background: #c9b458; color: #1a1a1a; }
+.column-header.aladin { background: #d9534f; }
 
 /* 주간 베스트셀러(종합/분야별) 모바일 아코디언 헤더. 실시간 탭은 이 클래스를
    쓰지 않는 일반 <div> 헤더 그대로 유지됩니다. */
@@ -558,7 +555,7 @@ body {
 
 .realtime-store-column-header.kyobo { background: #2d4a3e; }
 .realtime-store-column-header.yes24 { background: #1e3a8a; }
-.realtime-store-column-header.aladin { background: #c9b458; color: #1a1a1a; }
+.realtime-store-column-header.aladin { background: #d9534f; }
 
 .realtime-store-column ul {
   margin: 0;
