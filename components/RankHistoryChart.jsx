@@ -8,7 +8,7 @@ import { useMemo, useState } from "react";
 const STORE_COLOR = {
   교보문고: "#2d4a3e",
   예스24: "#1e3a8a",
-  알라딘: "#d9534f",
+  알라딘: "#c9b458",
 };
 
 const WIDTH = 640;
