@@ -15,7 +15,7 @@ body {
 }
 
 .header {
-  padding: 16px 24px;
+  padding: 10px 24px;
   background: #ffffff;
   border-bottom: 1px solid #e0e0e0;
   position: sticky;
@@ -28,11 +28,11 @@ body {
   height: 30px;
   width: auto;
   max-width: 100%;
-  margin: 0 0 12px 0;
+  margin: 0 0 6px 0;
 }
 
 .header h1 {
-  margin: 0 0 4px 0;
+  margin: 0 0 2px 0;
   font-size: 20px;
 }
 
@@ -45,15 +45,15 @@ body {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 /* 2단(분야별) 탭은 1단(종합/실시간)과 살짝 더 벌리고 위쪽에 옅은 구분선을
    둬서, 데스크톱에서 "1단 종합/실시간 - 2단 14개 분야" 구조가 한눈에
    보이도록 합니다. */
 .category-tabs-secondary {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
   border-top: 1px solid #eee;
 }
 
@@ -81,7 +81,7 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 8px;
   flex-wrap: wrap;
 }
 
@@ -732,12 +732,12 @@ body {
 /* 모바일 최적화 */
 @media (max-width: 768px) {
   .header {
-    padding: 14px 16px;
+    padding: 10px 16px;
   }
 
   .brand-logo {
     height: 24px;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
   }
 
   .header h1 {
