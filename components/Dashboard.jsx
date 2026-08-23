@@ -204,9 +204,9 @@ function BookRow({ row, highlightSurge, onShowHistory }) {
   );
 }
 
-// highlightSurge: 실시간 탭에서 BookColumn을 렌더링할 때만 true로 넘겨,
-// 20위 이상 급상승 도서를 BookRow에서 강조 표시하게 합니다. 종합/분야별
-// 탭은 이 prop을 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
+// highlightSurge: 실시간·종합 탭에서 BookColumn을 렌더링할 때 true로 넘겨,
+// 20위 이상 급상승 도서를 BookRow에서 강조 표시하게 합니다. 분야별 탭은
+// 이 prop을 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
 //
 // collapsible: 모바일 화면에서 서점 헤더를 눌러 그 서점의 목록만 접었다
 // 펼 수 있게 합니다(종합/분야별/실시간 탭 공통). 접힘 여부는
@@ -938,7 +938,7 @@ export default function Dashboard({
             error={activeErrors[bookstore]}
             query={query}
             onlyWisdom={onlyWisdom}
-            highlightSurge={isRealtime}
+            highlightSurge={isRealtime || isTotal}
             collapsible
             onShowHistory={openRankHistory}
           />
