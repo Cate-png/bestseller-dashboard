@@ -41,6 +41,49 @@ body {
   color: #666;
 }
 
+/* 헤더의 업데이트 안내 문구 바로 옆에 붙는 작은 새로고침 아이콘 버튼.
+   글자 크기에 맞춘 원형 아이콘 하나뿐이라 문구가 한 줄에 들어가는 데
+   거의 영향을 주지 않습니다. */
+.refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  background: #fff;
+  color: #555;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background: #f0f0f0;
+}
+
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.refresh-button.is-loading {
+  animation: refresh-button-spin 0.8s linear infinite;
+}
+
+@keyframes refresh-button-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .category-tabs {
   display: flex;
   gap: 8px;

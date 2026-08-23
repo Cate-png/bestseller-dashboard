@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { isWisdomHouse } from "../lib/wisdomhouse";
 import {
   getRisingBooks,
@@ -257,6 +258,36 @@ function TrendCard({ title, children, className = "" }) {
 const TOTAL_CATEGORY = "종합";
 const REALTIME_TAB = "실시간 베스트셀러";
 
+// 현재 선택된 탭(종합/실시간/분야)을 새로고침·뒤로가기/앞으로가기에도
+// 유지하기 위해 URL 쿼리(view, category)로부터 복원합니다. 파라미터가
+// 없거나 잘못된 값(존재하지 않는 category 등)이면 항상 안전하게
+// "종합"으로 떨어집니다 - 기존 링크(쿼리 없음)의 기본 동작과 동일합니다.
+// 실시간 탭은 realtime_rankings에 category 개념이 없어(app/page.js,
+// Dashboard의 분야 탭 로직 참고) view=realtime일 때는 category 값과
+// 무관하게 항상 실시간 탭으로 취급합니다.
+function resolveSelectedCategoryFromParams(searchParams, categories) {
+  const view = searchParams.get("view");
+  if (view === "realtime") return REALTIME_TAB;
+  if (view === "weekly") {
+    const category = searchParams.get("category");
+    if (category && categories.includes(category)) return category;
+  }
+  return TOTAL_CATEGORY;
+}
+
+// selectTab에서 쓰는 반대 방향 변환(선택된 탭 -> URL 쿼리스트링). "종합"은
+// 쿼리 없이 기본 경로 그대로 둡니다.
+function buildTabSearch(tab) {
+  const params = new URLSearchParams();
+  if (tab === REALTIME_TAB) {
+    params.set("view", "realtime");
+  } else if (tab !== TOTAL_CATEGORY) {
+    params.set("view", "weekly");
+    params.set("category", tab);
+  }
+  return params.toString();
+}
+
 export default function Dashboard({
   bookstores,
   storeData,
@@ -272,7 +303,17 @@ export default function Dashboard({
 }) {
   const [query, setQuery] = useState("");
   const [onlyWisdom, setOnlyWisdom] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState(TOTAL_CATEGORY);
+
+  // 선택된 탭(종합/실시간/분야)은 컴포넌트 자체 state가 아니라 URL 쿼리
+  // (?view=...&category=...)에서 파생시킵니다 - 새로고침해도 URL이 그대로
+  // 있으니 선택 상태가 자동으로 유지되고, 뒤로가기/앞으로가기도 브라우저가
+  // 원래 하던 대로 동작합니다.
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const selectedCategory = useMemo(
+    () => resolveSelectedCategoryFromParams(searchParams, categories),
+    [searchParams, categories]
+  );
 
   // 날짜 조회 상태. historyStoreData가 null이 아니면(=historyMode) 서버
   // props(storeData/categoryData/realtimeData) 대신 /api/history로 받아온
@@ -341,7 +382,15 @@ export default function Dashboard({
   }
 
   function selectTab(tab) {
-    setSelectedCategory(tab);
+    // router.push 대신 history.pushState를 직접 써서, 탭 전환마다
+    // 서버 컴포넌트(app/page.js)가 다시 조회되는 걸 피합니다(탭 데이터는
+    // 이미 아래 useEffect가 /api/history로 따로 받아오므로 여기서 서버
+    // 라운드트립이 하나 더 생길 이유가 없습니다). Next.js는 이 방식의
+    // history.pushState도 감지해 useSearchParams()를 갱신해주고, 브라우저
+    // 뒤로가기/앞으로가기(popstate)는 원래대로 동작합니다.
+    const search = buildTabSearch(tab);
+    const url = search ? `${pathname}?${search}` : pathname;
+    window.history.pushState(null, "", url);
     exitHistoryMode();
   }
 
@@ -669,6 +718,16 @@ export default function Dashboard({
         <h1>{isRealtime ? "실시간 베스트셀러 현황" : "주간 베스트셀러 현황"}</h1>
         <div className="meta">
           {formatDateTime(activeCollectedAt)} ({isRealtime ? "실시간 데이터는 수집·반영에 시간이 걸릴 수 있습니다" : "매일 KST 07:00 갱신"})
+          <button
+            type="button"
+            className={`refresh-button${historyLoading ? " is-loading" : ""}`}
+            onClick={() => fetchHistory()}
+            disabled={historyLoading}
+            aria-label="현재 화면 데이터 새로고침"
+            title="현재 화면 데이터 새로고침"
+          >
+            ↻
+          </button>
         </div>
         <div className="category-tabs category-tabs-primary">
           {primaryTabs.map((tab) => (
