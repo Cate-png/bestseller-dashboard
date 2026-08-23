@@ -111,9 +111,9 @@ body {
 }
 
 .category-tab.active {
-  background: #2d4a3e;
-  color: #fff;
-  border-color: #2d4a3e;
+  background: #e0a800;
+  color: #1a1a1a;
+  border-color: #e0a800;
 }
 
 /* 검색창 + 날짜/시간 선택 + 위즈덤하우스 필터 + 초기화를 한 줄에 배치합니다
@@ -170,23 +170,26 @@ body {
 }
 
 /* 위즈덤하우스 필터는 눈에 잘 띄도록 카테고리 탭의 활성 색과 동일한
-   짙은 녹색을 기본 배경으로 씁니다(켜져 있을 때만이 아니라 항상). 켜진
+   노란색을 기본 배경으로 씁니다(켜져 있을 때만이 아니라 항상). 켜진
    상태(.active)는 한 단계 더 짙게 해서 지금 필터링 중임을 구분합니다. */
 .controls-actions .wisdom-filter-button {
-  background: #2d4a3e;
-  color: #fff;
-  border-color: #2d4a3e;
+  background: #e0a800;
+  color: #1a1a1a;
+  border-color: #e0a800;
   font-weight: 600;
 }
 
 .controls-actions .wisdom-filter-button:hover {
-  background: #24392f;
-  border-color: #24392f;
+  background: #af8300;
+  border-color: #af8300;
 }
 
 .controls-actions .wisdom-filter-button.active {
-  background: #1c2f27;
-  border-color: #1c2f27;
+  background: #8d6a00;
+  border-color: #8d6a00;
+  /* 이 단계는 배경이 충분히 짙어져서, 다른 노란 상태와 달리 어두운
+     글자 대신 흰 글자가 대비(가독성)상 더 낫습니다. */
+  color: #fff;
 }
 
 .controls-actions .reset-button {
@@ -274,9 +277,9 @@ body {
   font-size: 15px;
 }
 
-.column-header.kyobo { background: #1e3a8a; }
-.column-header.yes24 { background: #d9534f; }
-.column-header.aladin { background: #e0a800; }
+.column-header.kyobo { background: #2d4a3e; }
+.column-header.yes24 { background: #1e3a8a; }
+.column-header.aladin { background: #d9534f; }
 
 /* 주간 베스트셀러(종합/분야별) 모바일 아코디언 헤더. 실시간 탭은 이 클래스를
    쓰지 않는 일반 <div> 헤더 그대로 유지됩니다. */
@@ -550,9 +553,9 @@ body {
   font-size: 12.5px;
 }
 
-.realtime-store-column-header.kyobo { background: #1e3a8a; }
-.realtime-store-column-header.yes24 { background: #d9534f; }
-.realtime-store-column-header.aladin { background: #e0a800; }
+.realtime-store-column-header.kyobo { background: #2d4a3e; }
+.realtime-store-column-header.yes24 { background: #1e3a8a; }
+.realtime-store-column-header.aladin { background: #d9534f; }
 
 .realtime-store-column ul {
   margin: 0;
