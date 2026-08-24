@@ -7,6 +7,7 @@ import { getSupabaseServerClient } from "../../../lib/supabaseServer";
 // 않습니다(app/api/history/route.js와 동일한 원칙).
 //
 // scope=total    -> rankings 테이블, category="종합"
+// scope=daily    -> rankings 테이블, category="일간"
 // scope=category -> rankings 테이블, category=<category 파라미터>
 // scope=realtime -> realtime_rankings 테이블 (category 개념 없음)
 //
@@ -45,7 +46,13 @@ export async function GET(request) {
 
   const table = scope === "realtime" ? "realtime_rankings" : "rankings";
   const categoryValue =
-    scope === "total" ? "종합" : scope === "category" ? category : null;
+    scope === "total"
+      ? "종합"
+      : scope === "daily"
+      ? "일간"
+      : scope === "category"
+      ? category
+      : null;
 
   const series = {};
   let bookInfo = null;

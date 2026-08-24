@@ -292,9 +292,9 @@ function TrendCard({ title, children, className = "" }) {
 
 const TOTAL_CATEGORY = "종합";
 const REALTIME_TAB = "실시간 베스트셀러";
-// 종합 일간 베스트셀러. 아직 수집/저장 로직이 없어 실제 데이터는 없지만,
-// 탭 UI(1단: 종합 아래 주간/일간/실시간)에는 자리를 미리 마련해둡니다 -
-// 나중에 일간 데이터가 연결되면 이 탭 값 그대로 이어받아 쓸 수 있습니다.
+// 종합 일간 베스트셀러(rankings.category="일간"). 종합(주간)/실시간과는
+// 완전히 별개의 데이터셋으로, 1단(종합) 탭 안에서 주간/일간/실시간 중
+// 하나로 선택합니다.
 const DAILY_TOTAL_TAB = "종합 일간";
 
 // 1단(종합) 탭의 내부 식별자(=selectedCategory 값)와 화면에 보여줄 짧은
@@ -345,6 +345,10 @@ export default function Dashboard({
   errors,
   collectedAt,
   weeklySavedAt = null,
+  dailyStoreData = {},
+  dailyErrors = {},
+  dailyCollectedAt = null,
+  dailySavedAt = null,
   steadyRows = [],
   categories = [],
   categoryData = {},
@@ -543,12 +547,11 @@ export default function Dashboard({
   // 다시 조회합니다.
   useEffect(() => {
     if (!currentDateValue) return; // 마운트 직후 아직 오늘 날짜가 안 채워진 순간
-    if (isDaily) return; // 일간 탭: 데이터 소스가 없으므로 조회하지 않음
-    if ((isTotal || isRealtime) && !isPastSelection) {
+    if ((isTotal || isRealtime || isDaily) && !isPastSelection) {
       exitHistoryMode();
       return;
     }
-    if (!isTotal && !isRealtime && !isPastSelection) {
+    if (!isTotal && !isRealtime && !isDaily && !isPastSelection) {
       const cached = categoryTodayCache[selectedCategory];
       if (cached) {
         setHistoryStoreData(cached.storeData);
@@ -623,8 +626,8 @@ export default function Dashboard({
       params.set("at", endOfHourISO(historyRealtimeDate, historyRealtimeHour));
     } else {
       if (!historyDate) return;
-      params.set("scope", isTotal ? "total" : "category");
-      if (!isTotal) params.set("category", selectedCategory);
+      params.set("scope", isTotal ? "total" : isDaily ? "daily" : "category");
+      if (!isTotal && !isDaily) params.set("category", selectedCategory);
       params.set("at", endOfDayISO(historyDate));
     }
 
@@ -644,7 +647,7 @@ export default function Dashboard({
       // 분야 탭의 "오늘" 조회 결과만 캐시에 저장합니다(다음에 같은 분야
       // 탭으로 돌아왔을 때 재조회를 건너뛰기 위함). 종합/실시간, 과거 날짜
       // 조회는 캐시하지 않습니다.
-      if (!isTotal && !isRealtime && !isPastSelection) {
+      if (!isTotal && !isRealtime && !isDaily && !isPastSelection) {
         setCategoryTodayCache((prev) => ({
           ...prev,
           [selectedCategory]: {
@@ -681,6 +684,8 @@ export default function Dashboard({
         params.set("scope", "realtime");
       } else if (isTotal) {
         params.set("scope", "total");
+      } else if (isDaily) {
+        params.set("scope", "daily");
       } else {
         params.set("scope", "category");
         params.set("category", selectedCategory);
@@ -708,6 +713,8 @@ export default function Dashboard({
     ? realtimeData
     : isTotal
     ? storeData
+    : isDaily
+    ? dailyStoreData
     : categoryData[selectedCategory] || {};
   const activeErrors = historyMode
     ? historyErrors
@@ -715,6 +722,8 @@ export default function Dashboard({
     ? realtimeErrors
     : isTotal
     ? errors
+    : isDaily
+    ? dailyErrors
     : categoryErrors[selectedCategory] || {};
 
   const activeCollectedAt = useMemo(() => {
@@ -727,6 +736,7 @@ export default function Dashboard({
       return latest;
     }
     if (isTotal) return collectedAt;
+    if (isDaily) return dailyCollectedAt;
     let latest = null;
     for (const bookstore of bookstores) {
       const rows = activeStoreData[bookstore] || [];
@@ -736,15 +746,25 @@ export default function Dashboard({
       }
     }
     return latest;
-  }, [historyMode, historyResolvedAt, isTotal, collectedAt, activeStoreData, bookstores]);
+  }, [
+    historyMode,
+    historyResolvedAt,
+    isTotal,
+    collectedAt,
+    isDaily,
+    dailyCollectedAt,
+    activeStoreData,
+    bookstores,
+  ]);
 
-  // 헤더에 "최종 업데이트"로 표시할 시각. 종합(주간) 탭은 3개 서점의 rankings
-  // 저장이 실제로 모두 끝난 시각(collection_runs.run_at 기반, weeklySavedAt /
-  // historyResolvedSavedAt)을 우선 쓰고, 아직 그 값이 없으면(과거 데이터 등)
-  // 기존 collected_at 기반 activeCollectedAt으로 대체합니다. 분야별/실시간
-  // 탭은 이번 변경 대상이 아니라 기존 activeCollectedAt을 그대로 씁니다.
+  // 헤더에 "최종 업데이트"로 표시할 시각. 종합(주간)/일간 탭은 3개 서점의
+  // rankings 저장이 실제로 모두 끝난 시각(collection_runs.run_at 기반,
+  // weeklySavedAt·dailySavedAt / historyResolvedSavedAt)을 우선 쓰고, 아직
+  // 그 값이 없으면(과거 데이터 등) 기존 collected_at 기반 activeCollectedAt
+  // 으로 대체합니다. 분야별/실시간 탭은 이번 변경 대상이 아니라 기존
+  // activeCollectedAt을 그대로 씁니다.
   const activeWeeklySavedAt = useMemo(() => {
-    if (!isTotal) return activeCollectedAt;
+    if (!isTotal && !isDaily) return activeCollectedAt;
     if (historyMode) {
       let latest = null;
       for (const bookstore of bookstores) {
@@ -753,13 +773,15 @@ export default function Dashboard({
       }
       return latest || activeCollectedAt;
     }
-    return weeklySavedAt || activeCollectedAt;
+    return (isDaily ? dailySavedAt : weeklySavedAt) || activeCollectedAt;
   }, [
     isTotal,
+    isDaily,
     historyMode,
     historyResolvedSavedAt,
     bookstores,
     weeklySavedAt,
+    dailySavedAt,
     activeCollectedAt,
   ]);
 
@@ -1007,27 +1029,21 @@ export default function Dashboard({
         </div>
       )}
 
-      {isDaily ? (
-        <div className="daily-placeholder">
-          일간 베스트셀러는 아직 준비 중입니다.
-        </div>
-      ) : (
-        <div className={`columns${historyLoading ? " loading" : ""}`}>
-          {bookstores.map((bookstore) => (
-            <BookColumn
-              key={bookstore}
-              bookstore={bookstore}
-              rows={activeStoreData[bookstore] || []}
-              error={activeErrors[bookstore]}
-              query={query}
-              onlyWisdom={onlyWisdom}
-              highlightSurge={isRealtime || isTotal}
-              collapsible
-              onShowHistory={openRankHistory}
-            />
-          ))}
-        </div>
-      )}
+      <div className={`columns${historyLoading ? " loading" : ""}`}>
+        {bookstores.map((bookstore) => (
+          <BookColumn
+            key={bookstore}
+            bookstore={bookstore}
+            rows={activeStoreData[bookstore] || []}
+            error={activeErrors[bookstore]}
+            query={query}
+            onlyWisdom={onlyWisdom}
+            highlightSurge={isRealtime || isTotal || isDaily}
+            collapsible
+            onShowHistory={openRankHistory}
+          />
+        ))}
+      </div>
 
       {isTotal && !isPastSelection && (
       <div className="trend-section">

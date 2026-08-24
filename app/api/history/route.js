@@ -8,6 +8,7 @@ import { getSupabaseServerClient } from "../../../lib/supabaseServer";
 // (lib/supabaseServer.js와 동일한 원칙).
 //
 // scope=total    -> rankings 테이블, category="종합"
+// scope=daily    -> rankings 테이블, category="일간" (종합 일간 TOP100)
 // scope=category -> rankings 테이블, category=<category 파라미터>
 // scope=realtime -> realtime_rankings 테이블 (category 개념 없음)
 //
@@ -54,10 +55,11 @@ async function getSnapshotAtOrBefore(client, table, bookstore, category, at) {
   return { collectedAt, rows: data || [] };
 }
 
-// 종합(주간) 라운드를 만든 run_id로 collection_runs.run_at(각 수집 스크립트가
-// rankings 저장 성공 직후 다시 기록해두는 "실제 DB 저장 완료 시각")을
-// 조회합니다. scope=total(=rankings, category="종합")일 때만 씁니다 - 분야별/
-// 실시간 스크립트는 아직 run_at을 갱신하지 않으므로 조회해도 의미가 없습니다.
+// 종합(주간/일간) 라운드를 만든 run_id로 collection_runs.run_at(각 수집
+// 스크립트가 rankings 저장 성공 직후 다시 기록해두는 "실제 DB 저장 완료
+// 시각")을 조회합니다. scope=total/daily(=rankings, category="종합"/"일간")
+// 일 때만 씁니다 - 분야별/실시간 스크립트는 아직 run_at을 갱신하지 않으므로
+// 조회해도 의미가 없습니다.
 async function getRunSavedAt(client, runId) {
   if (!runId) return null;
   const { data, error } = await client
@@ -97,7 +99,13 @@ export async function GET(request) {
 
   const table = scope === "realtime" ? "realtime_rankings" : "rankings";
   const categoryValue =
-    scope === "total" ? "종합" : scope === "category" ? category : null;
+    scope === "total"
+      ? "종합"
+      : scope === "daily"
+      ? "일간"
+      : scope === "category"
+      ? category
+      : null;
 
   const storeData = {};
   const errors = {};
@@ -119,7 +127,7 @@ export async function GET(request) {
           resolvedAt[bookstore] = collectedAt;
           if (rows.length === 0) {
             errors[bookstore] = "선택한 시점 이전에 수집된 기록이 없습니다.";
-          } else if (scope === "total") {
+          } else if (scope === "total" || scope === "daily") {
             resolvedSavedAt[bookstore] = await getRunSavedAt(client, rows[0].run_id);
           }
         } catch (e) {

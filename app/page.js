@@ -7,6 +7,7 @@ export const revalidate = 0;
 
 const BOOKSTORES = ["교보문고", "예스24", "알라딘"];
 const CATEGORY = "종합";
+const DAILY_CATEGORY = "일간";
 const STEADY_ROUNDS = 7;
 const STEADY_TOP_N = 20;
 
@@ -165,6 +166,14 @@ export default async function Page() {
   const realtimeData = {};
   const realtimeErrors = {};
 
+  // 종합 일간(rankings.category="일간"). 종합(주간)과 완전히 분리된
+  // 별도 데이터셋으로, 같은 getLatestCategoryRankings/getRunSavedAt을
+  // category만 다르게 넘겨 재사용합니다.
+  const dailyData = {};
+  const dailyErrors = {};
+  let latestDailyCollectedAt = null;
+  let latestDailySavedAt = null;
+
   let steadyRows = [];
 
   // 종합 / 실시간 / "꾸준한 강세"(최근 7회 TOP20)는 서로 전혀 참조하지 않는
@@ -213,6 +222,29 @@ export default async function Page() {
         }
       })
     ),
+    Promise.all(
+      BOOKSTORES.map(async (bookstore) => {
+        try {
+          const rankings = await getLatestCategoryRankings(client, bookstore, DAILY_CATEGORY);
+          dailyData[bookstore] = rankings;
+          if (rankings.length === 0) {
+            dailyErrors[bookstore] = "아직 성공한 수집 기록이 없습니다.";
+          } else {
+            const t = rankings[0].collected_at;
+            if (!latestDailyCollectedAt || t > latestDailyCollectedAt) {
+              latestDailyCollectedAt = t;
+            }
+            const savedAt = await getRunSavedAt(client, rankings[0].run_id);
+            if (savedAt && (!latestDailySavedAt || savedAt > latestDailySavedAt)) {
+              latestDailySavedAt = savedAt;
+            }
+          }
+        } catch (e) {
+          dailyData[bookstore] = [];
+          dailyErrors[bookstore] = String(e.message || e);
+        }
+      })
+    ),
     (async () => {
       try {
         const perStore = await Promise.all(
@@ -235,6 +267,10 @@ export default async function Page() {
       errors={errors}
       collectedAt={latestCollectedAt}
       weeklySavedAt={latestSavedAt}
+      dailyStoreData={dailyData}
+      dailyErrors={dailyErrors}
+      dailyCollectedAt={latestDailyCollectedAt}
+      dailySavedAt={latestDailySavedAt}
       steadyRows={steadyRows}
       categories={CATEGORIES}
       categoryData={categoryData}
