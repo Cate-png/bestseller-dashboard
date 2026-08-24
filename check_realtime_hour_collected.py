@@ -1,4 +1,4 @@
-"""collect-realtime.yml이 "이번 30분 슬롯"에 이 서점 데이터를 이미 정상
+"""collect-realtime.yml이 "이번 슬롯"에 이 서점 데이터를 이미 정상
 수집했는지 확인합니다.
 
 2026-08-24: 기존에는 "이번 KST 시간대(정시~59분)" 단위로 판단했지만,
@@ -16,12 +16,31 @@ GITHUB_OUTPUT에 써서 크롤링 스텝을 건너뛰게 합니다(중복 수집
 슬롯을 대신 채워주는" 기능이 아니라(이전과 동일하게 그런 보충 기능은
 없음), 단지 판단 단위 자체를 30분으로 좁힌 것입니다.
 
-슬롯 판단 기준은 "KST 기준 00분 또는 30분부터 시작하는 30분 구간"입니다.
-KST는 UTC+9 정수 시간 오프셋(서머타임 없음)이고 9시간(540분)은 30분의
-배수이므로, "KST 30분 슬롯 경계"와 "UTC 30분 슬롯 경계"는 항상 같은
-순간에 일어납니다(예: KST 13:30:00 == UTC 04:30:00, KST 13:59:59.999
-== UTC 04:59:59.999). 그래서 datetime.now(timezone.utc)를 UTC 기준으로
-30분 단위로 내림(floor)한 구간이 "지금 KST 슬롯" 구간과 정확히
+2026-08-24 (같은 날 추가 변경): 예스24만 수집 주기를 30분 -> 1시간으로
+되돌립니다(HOURLY_BOOKSTORES). 실측으로 예스24 "실시간베스트"의 내부
+순위 갱신이 30분보다 느린 자체 배치 주기를 따르는 것으로 확인되면서,
+30분마다 수집해도 등락이 "-"(무변동)로 찍히는 회차가 잦았기 때문입니다
+(계산 버그가 아니라 원본 데이터 자체가 그 사이 안 바뀐 것 - 실측으로
+검증됨). 외부 cron 서비스는 여전히 매시 00분/30분 총 2번
+workflow_dispatch를 호출하므로(교보/알라딘은 그 2번 모두 정상 수집),
+예스24 job도 그 2번 모두 실행되지만, 이 스크립트가 예스24에 한해
+슬롯을 "KST 매 정각부터 시작하는 1시간 구간"으로 판단해 정각(00분)
+실행에서만 실제로 수집하고 30분 실행에서는 already_collected=true로
+건너뛰게 만듭니다(정각 수집이 지연/실패했다면 30분 실행이 그 시간의
+유일한 수집으로 대신 진행됨 - 30분 슬롯과 동일한 "누락 슬롯을 대신
+채워주지 않는다"는 원칙을 그대로 따름). 교보/알라딘은 이 분기에
+해당하지 않아 30분 슬롯 판단 로직이 완전히 그대로입니다. rank_change
+계산(test_save_yes24_realtime.py의 get_previous_realtime_ranks)은
+"realtime_rankings에 저장된 가장 최근 회차와 비교"라는 기존 로직을
+전혀 바꾸지 않았습니다 - 저장 빈도 자체가 1시간에 1번으로 줄어들 뿐이라,
+자동으로 "직전 1시간 회차와 비교"가 됩니다.
+
+슬롯 판단 기준은 "KST 기준 00분(1시간 구간, 예스24) 또는 00분/30분부터
+시작하는 30분 구간(교보/알라딘)"입니다. KST는 UTC+9 정수 시간 오프셋
+(서머타임 없음)이므로 "KST 정각/30분 경계"와 "UTC 정각/30분 경계"는
+항상 같은 순간에 일어납니다(예: KST 13:00:00 == UTC 04:00:00, KST
+13:30:00 == UTC 04:30:00). 그래서 datetime.now(timezone.utc)를 UTC
+기준으로 그대로 내림(floor)한 구간이 "지금 KST 슬롯" 구간과 정확히
 일치하며, 타임존 변환 없이 UTC 시각만으로 정확한 KST 슬롯 경계를 구할
 수 있습니다.
 
@@ -54,6 +73,11 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 
+# 2026-08-24: 예스24만 수집 주기를 30분 -> 1시간으로 전환(사유는 모듈
+# docstring 참고). 교보문고/알라딘은 이 집합에 없으므로 기존 30분 슬롯
+# 로직이 완전히 그대로 적용됩니다.
+HOURLY_BOOKSTORES = {"예스24"}
+
 
 def write_output(already_collected: bool) -> None:
     value = "true" if already_collected else "false"
@@ -78,9 +102,16 @@ def main():
         return
 
     now_utc = datetime.now(timezone.utc)
-    slot_minute = 0 if now_utc.minute < 30 else 30  # 30분 슬롯 시작점(00분 또는 30분)으로 내림
-    slot_start = now_utc.replace(minute=slot_minute, second=0, microsecond=0)
-    slot_end = slot_start + timedelta(minutes=30)
+    if bookstore in HOURLY_BOOKSTORES:
+        # 1시간 슬롯 시작점(정각)으로 내림 - 30분 트리거에서도 이 구간을
+        # 그대로 조회하므로, 같은 시간대의 정각 수집이 이미 있으면
+        # 30분 트리거는 건너뛰게 됩니다.
+        slot_start = now_utc.replace(minute=0, second=0, microsecond=0)
+        slot_end = slot_start + timedelta(hours=1)
+    else:
+        slot_minute = 0 if now_utc.minute < 30 else 30  # 30분 슬롯 시작점(00분 또는 30분)으로 내림
+        slot_start = now_utc.replace(minute=slot_minute, second=0, microsecond=0)
+        slot_end = slot_start + timedelta(minutes=30)
     kst_slot_start = slot_start + timedelta(hours=9)
     slot_label = f"{kst_slot_start.hour:02d}:{kst_slot_start.minute:02d}"
     print(f"{bookstore}: 이번 회차(KST {slot_label} 슬롯) 조회 구간(UTC) = {slot_start.isoformat()} ~ {slot_end.isoformat()}")
