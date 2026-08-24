@@ -15,25 +15,28 @@ GitHub Actions에서 실제 네트워크 응답을 확인한 근거):
    상세페이지 방문은 애초에 하지 않습니다(API 응답에 저자/출판사/ISBN이
    이미 다 있음).
 
-2. rank_change는 예스24/알라딘 실시간 수집기와 동일하게, realtime_rankings에
-   저장해둔 우리 자신의 직전 스냅샷을 ISBN13 기준으로 찾아 비교해서
-   계산합니다(get_previous_realtime_ranks). item_to_book이 채워주는
-   frmrRnkn 기반 rank_change는 그대로 두되(공용 함수라 손대지 않음), 이
-   스크립트에서 곧바로 우리 자신의 스냅샷 비교값으로 덮어씁니다.
+2. rank_change 우선순위 (2026-08-24 조사 이후 변경):
+   1순위) 교보 API 원본의 prstRnkn(현재 순위)/frmrRnkn(이전 순위)이 유효한
+   값이면 그 값을 그대로 씁니다. item_to_book()이 이미 frmrRnkn - prstRnkn
+   으로 계산해둔 값을 그대로 가져다 쓸 뿐, 이 스크립트가 "교보 사이트가
+   화면에 표시하는 값"을 별도로 재계산하지는 않습니다(애초에 교보 실시간
+   페이지 자체에 등락을 보여주는 UI 요소가 없다는 것도 실측으로 확인함 -
+   prstRnkn/frmrRnkn은 API 전용 값).
+   2순위) frmrRnkn이 0/None(신규 진입 신호) 등 유효하지 않은 값이면, 예스24/
+   알라딘 실시간 수집기와 동일하게 realtime_rankings에 저장해둔 우리 자신의
+   직전 스냅샷을 (isbn13, url) 기준으로 찾아 비교해서 계산합니다
+   (get_previous_realtime_ranks) - 이 경우에만 fallback으로 사용합니다.
 
-   기존에는 교보 API 자체의 frmrRnkn(교보 서버가 계산한 "이전 순위")을
-   그대로 썼는데, 실제 수집 로그 10회분을 ISBN13 기준으로 교차 대조한
-   결과 예스24/알라딘은 100% 정확한 반면 교보만 6.3%(207쌍 중 13건)
-   불일치가 확인됐습니다 - 예를 들어 같은 책이 두 회차에서 똑같이 8위인데
-   등락이 ▼1→▼2로 바뀌거나, 실제로는 4계단 하락했는데 "-"(무변동)로
-   표시되는 사례가 실제 로그로 확인됨. 원인은 frmrRnkn이 "우리가 마지막
-   으로 수집한 시점" 기준이 아니라 교보 서버 자체의 내부 갱신 주기
-   기준이라, GitHub Actions의 schedule 트리거 지연으로 우리 수집 간격이
-   불규칙해질 때(예: 45~76분처럼 정확히 1시간이 아닐 때) 두 값이 서로
-   다른 시점을 비교한 것이 되어 어긋나는 것으로 확인됐습니다. 우리 자신의
-   직전 스냅샷과 비교하면 수집 간격이 얼마나 불규칙하든 "우리가 마지막
-   으로 본 시점 대비"로 항상 정확합니다(예스24/알라딘이 이미 이 방식으로
-   100% 정확했던 것과 동일한 이유).
+   이렇게 우선순위를 둔 이유: 예전엔 frmrRnkn을 무조건 그대로 썼는데, 실제
+   수집 로그 10회분을 ISBN13 기준으로 교차 대조한 결과 예스24/알라딘은
+   100% 정확한 반면 교보만 6.3%(207쌍 중 13건) 불일치가 확인돼 자체 스냅샷
+   비교 방식으로 한 번 전환했던 이력이 있습니다(원인: frmrRnkn은 "우리가
+   마지막으로 수집한 시점" 기준이 아니라 교보 서버 자체의 내부 갱신 주기
+   기준이라, GitHub Actions 트리거 지연으로 수집 간격이 불규칙해지면 두
+   값이 서로 다른 시점을 비교한 게 되어 어긋남). 하지만 사용자 요청으로
+   "서점 원본값 우선, 없을 때만 fallback"으로 다시 전환합니다 - frmrRnkn이
+   유효한 대다수 케이스에는 그대로 쓰고, 0/None처럼 교보 스스로도 신뢰할
+   근거가 없는 경우에만 우리 자신의 직전 스냅샷으로 보완합니다.
 
 기존 weekly/분야별 시스템과의 분리(변경 없음):
 - rankings / collection_runs / books 테이블에는 전혀 쓰지 않고,
@@ -242,17 +245,29 @@ def main():
         error_message = str(e)
         print(f"\n교보문고 실시간 수집이 완전히 실패했습니다: {error_message}")
 
-    # item_to_book()이 채워준 frmrRnkn 기반 rank_change(교보 API 자체 값)를
-    # 여기서 우리 자신의 직전 스냅샷 비교값으로 덮어씁니다 - 예스24/알라딘과
-    # 동일한 방식으로, 수집 간격이 불규칙해도 항상 "우리가 마지막으로 본
-    # 시점 대비"로 정확하게 계산되도록 합니다.
+    # item_to_book()이 이미 교보 API 원본(frmrRnkn - prstRnkn)으로 채워둔
+    # rank_change가 유효하면(=frmrRnkn이 0/None이 아니어서 None이 아니면)
+    # 그 값을 그대로 씁니다. frmrRnkn이 0/None이라 원본값이 없을 때만(=
+    # book["rank_change"]가 None일 때만) 예스24/알라딘과 동일한 방식으로
+    # 우리 자신의 직전 스냅샷 비교값으로 보완(fallback)합니다.
+    fallback_used = 0
+    origin_used = 0
     for book in books:
+        if book["rank_change"] is not None:
+            origin_used += 1
+            continue
         isbn13 = book.get("isbn13")
         key = (isbn13, book.get("url"))
         if isbn13 and key in prev_ranks:
             book["rank_change"] = prev_ranks[key] - book["rank"]
+            fallback_used += 1
         else:
             book["rank_change"] = None
+    print(
+        f"rank_change 계산: 교보 원본(prstRnkn/frmrRnkn) 사용 {origin_used}건, "
+        f"우리 자신의 직전 스냅샷으로 fallback {fallback_used}건, "
+        f"신규 진입(원본/자체 스냅샷 모두 없음) {len(books) - origin_used - fallback_used}건"
+    )
 
     status = "success" if books else "failed"
 
