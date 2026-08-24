@@ -219,6 +219,16 @@ def collect_valid_books(target_valid=TARGET_COUNT):
 
 
 def get_previous_realtime_ranks(client):
+    """직전 회차의 (isbn13, url) -> rank 매핑을 돌려줍니다.
+
+    isbn13만으로 매핑하면 안 됩니다 - 종이책/전자책처럼 같은 ISBN13을 공유하는
+    서로 다른 상품이 리스트에 함께 들어있으면(교보문고에서 실측 확인된 사례),
+    isbn13만 키로 쓸 경우 두 상품이 한 딕셔너리 키에서 충돌해 서로의 순위를
+    덮어써 등락이 크게 틀어집니다. url은 상품(에디션) 단위로 고유하므로
+    (isbn13, url) 조합을 키로 써서 이런 충돌을 막습니다. 알라딘은 현재
+    데이터에서 이 중복이 확인되지는 않았지만, 동일한 코드 패턴이라 잠재적으로
+    같은 문제가 생길 수 있어 함께 방어합니다.
+    """
     latest = (
         client.table("realtime_rankings")
         .select("collected_at")
@@ -233,12 +243,16 @@ def get_previous_realtime_ranks(client):
     latest_collected_at = latest.data[0]["collected_at"]
     prev = (
         client.table("realtime_rankings")
-        .select("isbn13, rank")
+        .select("isbn13, url, rank")
         .eq("bookstore", BOOKSTORE)
         .eq("collected_at", latest_collected_at)
         .execute()
     )
-    return {row["isbn13"]: row["rank"] for row in prev.data if row["isbn13"]}
+    return {
+        (row["isbn13"], row["url"]): row["rank"]
+        for row in prev.data
+        if row["isbn13"]
+    }
 
 
 def main():
@@ -289,8 +303,9 @@ def main():
 
     for book in books:
         isbn13 = book.get("isbn13")
-        if isbn13 and isbn13 in prev_ranks:
-            book["rank_change"] = prev_ranks[isbn13] - book["rank"]
+        key = (isbn13, book.get("url"))
+        if isbn13 and key in prev_ranks:
+            book["rank_change"] = prev_ranks[key] - book["rank"]
         else:
             book["rank_change"] = None
         book["match_status"] = "matched" if isbn13 else "no_isbn"

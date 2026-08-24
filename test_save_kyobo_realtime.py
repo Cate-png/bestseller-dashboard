@@ -153,6 +153,17 @@ def load_realtime_list(page):
 
 
 def get_previous_realtime_ranks(client):
+    """직전 회차의 (isbn13, url) -> rank 매핑을 돌려줍니다.
+
+    isbn13만으로 매핑하면 안 됩니다 - 교보문고는 같은 책의 종이책/전자책이
+    서로 다른 상품(URL, 순위)인데도 ISBN13이 동일한 경우가 실제로 있어서,
+    isbn13만 키로 쓰면 두 상품이 한 딕셔너리 키에서 충돌해 서로의 순위를
+    덮어씁니다(실측: "어떻게 살아낼 것인가" 종이책 3위/전자책 33위가 isbn13
+    하나로 겹치면서, 종이책 2위 등락이 실제로는 ↑1인데 ↑31로, 전자책은
+    반대로 뒤섞여 계산된 사례). url은 상품(에디션) 단위로 고유하므로
+    (isbn13, url) 조합을 키로 써서 같은 ISBN이라도 다른 상품이면 각자
+    정확히 비교되도록 합니다.
+    """
     latest = (
         client.table("realtime_rankings")
         .select("collected_at")
@@ -167,12 +178,16 @@ def get_previous_realtime_ranks(client):
     latest_collected_at = latest.data[0]["collected_at"]
     prev = (
         client.table("realtime_rankings")
-        .select("isbn13, rank")
+        .select("isbn13, url, rank")
         .eq("bookstore", BOOKSTORE)
         .eq("collected_at", latest_collected_at)
         .execute()
     )
-    return {row["isbn13"]: row["rank"] for row in prev.data if row["isbn13"]}
+    return {
+        (row["isbn13"], row["url"]): row["rank"]
+        for row in prev.data
+        if row["isbn13"]
+    }
 
 
 def main():
@@ -233,8 +248,9 @@ def main():
     # 시점 대비"로 정확하게 계산되도록 합니다.
     for book in books:
         isbn13 = book.get("isbn13")
-        if isbn13 and isbn13 in prev_ranks:
-            book["rank_change"] = prev_ranks[isbn13] - book["rank"]
+        key = (isbn13, book.get("url"))
+        if isbn13 and key in prev_ranks:
+            book["rank_change"] = prev_ranks[key] - book["rank"]
         else:
             book["rank_change"] = None
 
