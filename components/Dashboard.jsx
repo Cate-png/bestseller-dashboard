@@ -22,29 +22,16 @@ const COLUMN_CLASS = {
   알라딘: "aladin",
 };
 
-function formatDateTime(iso) {
+// 헤더의 "최종 업데이트" 표시 전용: "YYYY. M. D. HH:MM" (연/월/일 사이는
+// ". "로 구분하고 월/일은 0 패딩하지 않음, 시:분만 2자리로 유지, "기준"
+// 문구는 붙이지 않음). 주간/실시간 탭 모두 이 형식을 공유합니다.
+function formatUpdatedAt(iso) {
   if (!iso) return "데이터 없음";
   const d = new Date(iso);
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(
+  return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}. ${pad(
     d.getHours()
-  )}:${pad(d.getMinutes())} 기준`;
-}
-
-// 주간 베스트셀러 헤더 전용: "YYYY.MM.DD" (날짜만)
-function formatDateOnly(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
-}
-
-// 주간 베스트셀러 헤더 전용: "HH:MM" (시:분만)
-function formatTimeOnly(iso) {
-  if (!iso) return "데이터 없음";
-  const d = new Date(iso);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  )}:${pad(d.getMinutes())}`;
 }
 
 // 날짜(YYYY-MM-DD, <input type="date"> 값)를 "그 날짜의 마지막 순간(UTC
@@ -831,37 +818,33 @@ export default function Dashboard({
         >
           <img src="/logo.png" alt="위즈덤하우스" className="brand-logo" />
         </button>
-        <h1>
-          {isRealtime
-            ? "실시간 베스트셀러 현황"
-            : `${formatDateOnly(activeWeeklySavedAt)} 주간 베스트셀러`}
-        </h1>
+        <h1>{isRealtime ? "실시간 베스트셀러" : "주간 베스트셀러"}</h1>
         <div className="meta">
-          {isRealtime
-            ? `${formatDateTime(activeCollectedAt)} (실시간 데이터는 수집·반영에 시간이 걸릴 수 있습니다)`
-            : `최종 업데이트 ${formatTimeOnly(activeWeeklySavedAt)}`}
-          <button
-            type="button"
-            className={`refresh-button${historyLoading ? " is-loading" : ""}`}
-            onClick={() => {
-              // 실시간 탭 + 사용자가 과거 시간대를 직접 선택한 게 아니라면
-              // ("지금"을 보고 있는 중이라면) 새로고침은 현재 KST 시간대로
-              // 먼저 맞춘 뒤 조회합니다 - 그래야 19시에 열어둔 탭에서 20시가
-              // 된 뒤 눌러도 20시 데이터가 나옵니다. 과거 시간대를 직접
-              // 보고 있는 중이면 그 선택을 그대로 두고 같은 시점만 다시
-              // 조회합니다(강제로 지금으로 이동시키지 않음).
-              if (isRealtime && !userAdjustedRealtimeRef.current) {
-                syncRealtimeToNow();
-              } else {
-                fetchHistory();
-              }
-            }}
-            disabled={historyLoading}
-            aria-label="현재 화면 데이터 새로고침"
-            title="현재 화면 데이터 새로고침"
-          >
-            ↻
-          </button>
+          최종 업데이트 {formatUpdatedAt(isRealtime ? activeCollectedAt : activeWeeklySavedAt)}
+          {isRealtime && (
+            <button
+              type="button"
+              className={`refresh-button${historyLoading ? " is-loading" : ""}`}
+              onClick={() => {
+                // 실시간 탭 + 사용자가 과거 시간대를 직접 선택한 게 아니라면
+                // ("지금"을 보고 있는 중이라면) 새로고침은 현재 KST 시간대로
+                // 먼저 맞춘 뒤 조회합니다 - 그래야 19시에 열어둔 탭에서 20시가
+                // 된 뒤 눌러도 20시 데이터가 나옵니다. 과거 시간대를 직접
+                // 보고 있는 중이면 그 선택을 그대로 두고 같은 시점만 다시
+                // 조회합니다(강제로 지금으로 이동시키지 않음).
+                if (isRealtime && !userAdjustedRealtimeRef.current) {
+                  syncRealtimeToNow();
+                } else {
+                  fetchHistory();
+                }
+              }}
+              disabled={historyLoading}
+              aria-label="현재 화면 데이터 새로고침"
+              title="현재 화면 데이터 새로고침"
+            >
+              ↻
+            </button>
+          )}
         </div>
         <div className="category-tabs category-tabs-primary">
           {primaryTabs.map((tab) => (
