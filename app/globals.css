@@ -93,20 +93,54 @@ body {
   }
 }
 
+/* 헤더 1단(종합)/2단(분야) 한 줄 전체. "종합"/"분야" 고정 라벨 + (2단은
+   "주간" 보조 설명) + 실제 탭 버튼 그룹을 한 flex row에 나란히 놓습니다.
+   버튼 그룹(.category-tabs)만 flex: 1 1 auto + min-width: 0으로 줄어들
+   수 있게 해서, 모바일에서 버튼이 많아 넘칠 때도 라벨은 항상 보이고
+   버튼 부분만 가로 스크롤됩니다. */
+.tab-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 2단(분야별) 줄은 1단(종합)과 살짝 더 벌리고 위쪽에 옅은 구분선을 둬서,
+   데스크톱에서 "1단 종합 - 2단 분야" 구조가 한눈에 보이도록 합니다. */
+.tab-row-secondary {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #eee;
+}
+
+/* "종합"/"분야" - 클릭할 수 없는 고정 구분 라벨(버튼처럼 보이지 않도록
+   테두리/배경 없이 작고 옅은 글씨로만 표시). */
+.tab-row-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: #999;
+  white-space: nowrap;
+}
+
+/* "주간" - 분야별 베스트셀러가 주간 데이터만 제공된다는 것을 알려주는
+   보조 설명 텍스트. 분야 버튼들과 확실히 구분되도록 더 작고 옅게. */
+.tab-row-sublabel {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #aaa;
+  white-space: nowrap;
+}
+
 .category-tabs {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  min-width: 0;
 }
 
-/* 2단(분야별) 탭은 1단(종합/실시간)과 살짝 더 벌리고 위쪽에 옅은 구분선을
-   둬서, 데스크톱에서 "1단 종합/실시간 - 2단 14개 분야" 구조가 한눈에
-   보이도록 합니다. */
-.category-tabs-secondary {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid #eee;
+.tab-row .category-tabs {
+  flex: 1 1 auto;
 }
 
 .category-tab {
@@ -265,6 +299,14 @@ body {
   padding: 16px 24px;
   align-items: flex-start;
   transition: opacity 0.15s ease;
+}
+
+/* 종합 [일간] 탭 전용 안내. 아직 데이터가 없어 .columns 대신 표시됩니다. */
+.daily-placeholder {
+  padding: 60px 24px;
+  text-align: center;
+  color: #999;
+  font-size: 14px;
 }
 
 /* 날짜를 바꿔 새 스냅샷을 불러오는 동안, 이전 날짜의 목록이 그대로
@@ -863,8 +905,22 @@ body {
     font-size: 11px;
   }
 
-  .category-tabs {
+  .tab-row {
     margin-top: 5px;
+    gap: 5px;
+  }
+
+  .tab-row-secondary {
+    margin-top: 5px;
+    padding-top: 5px;
+  }
+
+  .tab-row-label,
+  .tab-row-sublabel {
+    font-size: 10px;
+  }
+
+  .category-tabs {
     gap: 5px;
   }
 
@@ -876,7 +932,8 @@ body {
   /* 분야 필터(2단)는 모바일에서 줄바꿈하지 않고 한 줄로 유지한 채
      가로 스크롤로 넘어가게 합니다 - 14개 분야가 여러 줄을 차지해
      헤더가 길어지는 것을 막습니다. 스크롤바는 시각적으로 숨깁니다
-     (스크롤 동작 자체는 그대로 유지됨). */
+     (스크롤 동작 자체는 그대로 유지됨). 라벨("분야"/"주간")은 이
+     스크롤 영역 밖(.tab-row-secondary)에 있어 항상 보입니다. */
   .category-tabs-secondary {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -884,8 +941,6 @@ body {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     -ms-overflow-style: none;
-    margin-top: 5px;
-    padding-top: 5px;
     padding-bottom: 2px;
   }
 

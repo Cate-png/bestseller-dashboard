@@ -292,6 +292,19 @@ function TrendCard({ title, children, className = "" }) {
 
 const TOTAL_CATEGORY = "종합";
 const REALTIME_TAB = "실시간 베스트셀러";
+// 종합 일간 베스트셀러. 아직 수집/저장 로직이 없어 실제 데이터는 없지만,
+// 탭 UI(1단: 종합 아래 주간/일간/실시간)에는 자리를 미리 마련해둡니다 -
+// 나중에 일간 데이터가 연결되면 이 탭 값 그대로 이어받아 쓸 수 있습니다.
+const DAILY_TOTAL_TAB = "종합 일간";
+
+// 1단(종합) 탭의 내부 식별자(=selectedCategory 값)와 화면에 보여줄 짧은
+// 라벨을 분리합니다. 2단(분야) 탭은 분야 이름 자체가 곧 라벨이라 별도
+// 매핑이 필요 없습니다.
+const PRIMARY_TAB_LABELS = {
+  [TOTAL_CATEGORY]: "주간",
+  [DAILY_TOTAL_TAB]: "일간",
+  [REALTIME_TAB]: "실시간",
+};
 
 // 현재 선택된 탭(종합/실시간/분야)을 새로고침·뒤로가기/앞으로가기에도
 // 유지하기 위해 URL 쿼리(view, category)로부터 복원합니다. 파라미터가
@@ -303,6 +316,7 @@ const REALTIME_TAB = "실시간 베스트셀러";
 function resolveSelectedCategoryFromParams(searchParams, categories) {
   const view = searchParams.get("view");
   if (view === "realtime") return REALTIME_TAB;
+  if (view === "daily") return DAILY_TOTAL_TAB;
   if (view === "weekly") {
     const category = searchParams.get("category");
     if (category && categories.includes(category)) return category;
@@ -316,6 +330,8 @@ function buildTabSearch(tab) {
   const params = new URLSearchParams();
   if (tab === REALTIME_TAB) {
     params.set("view", "realtime");
+  } else if (tab === DAILY_TOTAL_TAB) {
+    params.set("view", "daily");
   } else if (tab !== TOTAL_CATEGORY) {
     params.set("view", "weekly");
     params.set("category", tab);
@@ -394,9 +410,16 @@ export default function Dashboard({
   // 탭을 1단(종합/실시간 베스트셀러)과 2단(분야별 14개)으로 분리해서
   // 렌더링합니다. categories(=lib/categories.js의 CATEGORIES)의 배열
   // 순서가 그대로 2단 탭의 표시 순서가 됩니다.
-  const primaryTabs = useMemo(() => [TOTAL_CATEGORY, REALTIME_TAB], []);
+  const primaryTabs = useMemo(
+    () => [TOTAL_CATEGORY, DAILY_TOTAL_TAB, REALTIME_TAB],
+    []
+  );
   const isTotal = selectedCategory === TOTAL_CATEGORY;
   const isRealtime = selectedCategory === REALTIME_TAB;
+  // 종합 일간 탭. 아직 데이터/조회 로직이 없으므로 이 탭이 선택된 동안은
+  // 아래 자동 조회 useEffect에서 완전히 건너뛰고(네트워크 요청 없음),
+  // 콘텐츠 영역에는 "준비 중" 안내만 보여줍니다.
+  const isDaily = selectedCategory === DAILY_TOTAL_TAB;
   const historyMode = historyStoreData !== null;
 
   // 현재 탭에서 실제로 쓰이는 날짜(+시) 입력값 하나. 실시간 탭은
@@ -520,6 +543,7 @@ export default function Dashboard({
   // 다시 조회합니다.
   useEffect(() => {
     if (!currentDateValue) return; // 마운트 직후 아직 오늘 날짜가 안 채워진 순간
+    if (isDaily) return; // 일간 탭: 데이터 소스가 없으므로 조회하지 않음
     if ((isTotal || isRealtime) && !isPastSelection) {
       exitHistoryMode();
       return;
@@ -536,7 +560,7 @@ export default function Dashboard({
     }
     fetchHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDateValue, isTotal, isRealtime, selectedCategory, isPastSelection]);
+  }, [currentDateValue, isTotal, isRealtime, isDaily, selectedCategory, isPastSelection]);
 
   // 페이지 초기 렌더링(종합 탭 표시)이 끝난 뒤, 화면을 막지 않는 상태로
   // 14개 분야의 "오늘" 데이터를 백그라운드에서 미리 받아 categoryTodayCache를
@@ -818,7 +842,13 @@ export default function Dashboard({
         >
           <img src="/logo.png" alt="위즈덤하우스" className="brand-logo" />
         </button>
-        <h1>{isRealtime ? "실시간 베스트셀러" : "주간 베스트셀러"}</h1>
+        <h1>
+          {isRealtime
+            ? "실시간 베스트셀러"
+            : isDaily
+            ? "일간 베스트셀러"
+            : "주간 베스트셀러"}
+        </h1>
         <div className="meta">
           최종 업데이트 {formatUpdatedAt(isRealtime ? activeCollectedAt : activeWeeklySavedAt)}
           {isRealtime && (
@@ -846,27 +876,39 @@ export default function Dashboard({
             </button>
           )}
         </div>
-        <div className="category-tabs category-tabs-primary">
-          {primaryTabs.map((tab) => (
-            <button
-              key={tab}
-              className={`category-tab${selectedCategory === tab ? " active" : ""}`}
-              onClick={() => selectTab(tab)}
-            >
-              {tab}
-            </button>
-          ))}
+        {/* 1단: "종합"은 클릭 불가능한 고정 라벨이고, 그 옆 버튼들(주간/일간/
+            실시간)이 종합 베스트셀러의 기간·유형 선택지입니다. */}
+        <div className="tab-row tab-row-primary">
+          <span className="tab-row-label">종합</span>
+          <div className="category-tabs category-tabs-primary">
+            {primaryTabs.map((tab) => (
+              <button
+                key={tab}
+                className={`category-tab${selectedCategory === tab ? " active" : ""}`}
+                onClick={() => selectTab(tab)}
+              >
+                {PRIMARY_TAB_LABELS[tab]}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="category-tabs category-tabs-secondary">
-          {categories.map((tab) => (
-            <button
-              key={tab}
-              className={`category-tab${selectedCategory === tab ? " active" : ""}`}
-              onClick={() => selectTab(tab)}
-            >
-              {tab}
-            </button>
-          ))}
+        {/* 2단: "분야"도 고정 라벨이고, 그 옆의 작은 "주간" 텍스트는 클릭할
+            수 없는 보조 설명입니다(분야별 베스트셀러는 주간 데이터만
+            제공된다는 의미) - 1단의 [주간] 버튼과는 별개입니다. */}
+        <div className="tab-row tab-row-secondary">
+          <span className="tab-row-label">분야</span>
+          <span className="tab-row-sublabel">주간</span>
+          <div className="category-tabs category-tabs-secondary">
+            {categories.map((tab) => (
+              <button
+                key={tab}
+                className={`category-tab${selectedCategory === tab ? " active" : ""}`}
+                onClick={() => selectTab(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="controls">
           <input
@@ -965,21 +1007,27 @@ export default function Dashboard({
         </div>
       )}
 
-      <div className={`columns${historyLoading ? " loading" : ""}`}>
-        {bookstores.map((bookstore) => (
-          <BookColumn
-            key={bookstore}
-            bookstore={bookstore}
-            rows={activeStoreData[bookstore] || []}
-            error={activeErrors[bookstore]}
-            query={query}
-            onlyWisdom={onlyWisdom}
-            highlightSurge={isRealtime || isTotal}
-            collapsible
-            onShowHistory={openRankHistory}
-          />
-        ))}
-      </div>
+      {isDaily ? (
+        <div className="daily-placeholder">
+          일간 베스트셀러는 아직 준비 중입니다.
+        </div>
+      ) : (
+        <div className={`columns${historyLoading ? " loading" : ""}`}>
+          {bookstores.map((bookstore) => (
+            <BookColumn
+              key={bookstore}
+              bookstore={bookstore}
+              rows={activeStoreData[bookstore] || []}
+              error={activeErrors[bookstore]}
+              query={query}
+              onlyWisdom={onlyWisdom}
+              highlightSurge={isRealtime || isTotal}
+              collapsible
+              onShowHistory={openRankHistory}
+            />
+          ))}
+        </div>
+      )}
 
       {isTotal && !isPastSelection && (
       <div className="trend-section">
