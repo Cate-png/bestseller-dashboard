@@ -160,6 +160,15 @@ def main():
     )
 
     print(f"rankings 저장 성공: {len(ranking_rows)}건")
+
+    # rankings 저장이 실제로 끝난 직후의 시각을 collection_runs.run_at에 다시
+    # 기록합니다. 위에서 run_at에 넣은 collected_at은 API 조회 직후(=DB 저장
+    # 전) 시각이라 "실제 저장 완료 시각"과는 다릅니다. collected_at(각 rankings
+    # 행의 회차 식별자로 계속 쓰이는 값)은 건드리지 않고, 화면 표시용으로만
+    # 쓰이는 run_at만 갱신합니다.
+    saved_at = datetime.now(timezone.utc).isoformat()
+    supabase.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id).execute()
+    print(f"collection_runs.run_at을 실제 저장 완료 시각으로 갱신: {saved_at}")
     print()
     print("=" * 70)
     print("예스24 TOP20 저장 결과")

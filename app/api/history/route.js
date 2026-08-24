@@ -40,7 +40,7 @@ async function getSnapshotAtOrBefore(client, table, bookstore, category, at) {
   let rowsQuery = client
     .from(table)
     .select(
-      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore"
+      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, run_id"
     )
     .eq("bookstore", bookstore)
     .eq("collected_at", collectedAt)
@@ -52,6 +52,21 @@ async function getSnapshotAtOrBefore(client, table, bookstore, category, at) {
   const { data, error } = await rowsQuery;
   if (error) throw error;
   return { collectedAt, rows: data || [] };
+}
+
+// 종합(주간) 라운드를 만든 run_id로 collection_runs.run_at(각 수집 스크립트가
+// rankings 저장 성공 직후 다시 기록해두는 "실제 DB 저장 완료 시각")을
+// 조회합니다. scope=total(=rankings, category="종합")일 때만 씁니다 - 분야별/
+// 실시간 스크립트는 아직 run_at을 갱신하지 않으므로 조회해도 의미가 없습니다.
+async function getRunSavedAt(client, runId) {
+  if (!runId) return null;
+  const { data, error } = await client
+    .from("collection_runs")
+    .select("run_at")
+    .eq("id", runId)
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  return data[0].run_at || null;
 }
 
 export async function GET(request) {
@@ -87,6 +102,7 @@ export async function GET(request) {
   const storeData = {};
   const errors = {};
   const resolvedAt = {};
+  const resolvedSavedAt = {};
 
   try {
     await Promise.all(
@@ -103,6 +119,8 @@ export async function GET(request) {
           resolvedAt[bookstore] = collectedAt;
           if (rows.length === 0) {
             errors[bookstore] = "선택한 시점 이전에 수집된 기록이 없습니다.";
+          } else if (scope === "total") {
+            resolvedSavedAt[bookstore] = await getRunSavedAt(client, rows[0].run_id);
           }
         } catch (e) {
           storeData[bookstore] = [];
@@ -114,5 +132,5 @@ export async function GET(request) {
     return NextResponse.json({ error: String(e.message || e) }, { status: 500 });
   }
 
-  return NextResponse.json({ storeData, errors, resolvedAt });
+  return NextResponse.json({ storeData, errors, resolvedAt, resolvedSavedAt });
 }

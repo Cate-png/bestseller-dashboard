@@ -33,7 +33,7 @@ async function getLatestCategoryRankings(client, bookstore, category) {
   const { data, error } = await client
     .from("rankings")
     .select(
-      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore"
+      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, run_id"
     )
     .eq("bookstore", bookstore)
     .eq("category", category)
@@ -42,6 +42,22 @@ async function getLatestCategoryRankings(client, bookstore, category) {
 
   if (error) throw error;
   return data || [];
+}
+
+// 종합(주간) 라운드를 만든 run_id로 collection_runs.run_at을 조회합니다.
+// run_at은 각 수집 스크립트가 rankings 저장에 성공한 직후 다시 기록해두는
+// "실제 DB 저장 완료 시각"입니다(수집 시작 시각인 collected_at과는 다른 값).
+// 조회에 실패하거나 run_id가 없으면(과거 데이터 등) null을 돌려주고, 호출부에서
+// collected_at 기반 값으로 대체합니다.
+async function getRunSavedAt(client, runId) {
+  if (!runId) return null;
+  const { data, error } = await client
+    .from("collection_runs")
+    .select("run_at")
+    .eq("id", runId)
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  return data[0].run_at || null;
 }
 
 // 실시간 베스트셀러(realtime_rankings)의 "서점별 가장 최근 스냅샷"을 가져옵니다.
@@ -125,6 +141,11 @@ export default async function Page() {
   const storeData = {};
   const errors = {};
   let latestCollectedAt = null;
+  // 3개 서점 중 "실제 DB 저장이 가장 늦게 끝난" 시각(collection_runs.run_at
+  // 기반). collected_at(수집 시작 시각, 회차 식별자)과는 별개로 화면 표시에만
+  // 씁니다. run_at 조회가 안 되면(과거 데이터 등) null로 남고, 화면에서는
+  // latestCollectedAt으로 대체합니다.
+  let latestSavedAt = null;
 
   // 분야별 TOP20: 예전에는 14개 분야 x 3개 서점을 페이지 렌더링 시점에
   // 전부 미리 조회해뒀지만(최대 84개 쿼리), 분야가 6개에서 14개로 늘면서
@@ -166,6 +187,10 @@ export default async function Page() {
             const t = rankings[0].collected_at;
             if (!latestCollectedAt || t > latestCollectedAt) {
               latestCollectedAt = t;
+            }
+            const savedAt = await getRunSavedAt(client, rankings[0].run_id);
+            if (savedAt && (!latestSavedAt || savedAt > latestSavedAt)) {
+              latestSavedAt = savedAt;
             }
           }
         } catch (e) {
@@ -209,6 +234,7 @@ export default async function Page() {
       storeData={storeData}
       errors={errors}
       collectedAt={latestCollectedAt}
+      weeklySavedAt={latestSavedAt}
       steadyRows={steadyRows}
       categories={CATEGORIES}
       categoryData={categoryData}

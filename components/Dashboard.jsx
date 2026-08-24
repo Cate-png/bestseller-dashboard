@@ -31,6 +31,22 @@ function formatDateTime(iso) {
   )}:${pad(d.getMinutes())} 기준`;
 }
 
+// 주간 베스트셀러 헤더 전용: "YYYY.MM.DD" (날짜만)
+function formatDateOnly(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
+}
+
+// 주간 베스트셀러 헤더 전용: "HH:MM" (시:분만)
+function formatTimeOnly(iso) {
+  if (!iso) return "데이터 없음";
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // 날짜(YYYY-MM-DD, <input type="date"> 값)를 "그 날짜의 마지막 순간(UTC
 // 23:59:59.999)"의 ISO 문자열로 바꿉니다. 과거 기록 조회에서 "이 날짜 이전
 // 가장 최근 스냅샷"을 찾을 때 상한선으로 씁니다(정확한 타임존 보정 없이
@@ -325,6 +341,7 @@ export default function Dashboard({
   storeData,
   errors,
   collectedAt,
+  weeklySavedAt = null,
   steadyRows = [],
   categories = [],
   categoryData = {},
@@ -363,6 +380,9 @@ export default function Dashboard({
   const [historyStoreData, setHistoryStoreData] = useState(null);
   const [historyErrors, setHistoryErrors] = useState({});
   const [historyResolvedAt, setHistoryResolvedAt] = useState({});
+  // scope=total일 때만 채워지는 "실제 DB 저장 완료 시각"(서점별). collected_at
+  // 기반 historyResolvedAt과 별개로 헤더 표시에만 씁니다.
+  const [historyResolvedSavedAt, setHistoryResolvedSavedAt] = useState({});
 
   // 분야 탭의 "오늘(최신)" 조회 결과 캐시. 서버(app/page.js)는 더 이상
   // 분야별 데이터를 미리 조회하지 않고, 분야 탭을 처음 클릭한 시점에만
@@ -421,6 +441,7 @@ export default function Dashboard({
     setHistoryStoreData(null);
     setHistoryErrors({});
     setHistoryResolvedAt({});
+    setHistoryResolvedSavedAt({});
     setHistoryFetchError(null);
   }
 
@@ -608,6 +629,7 @@ export default function Dashboard({
       setHistoryStoreData(nextStoreData);
       setHistoryErrors(nextErrors);
       setHistoryResolvedAt(nextResolvedAt);
+      setHistoryResolvedSavedAt(json.resolvedSavedAt || {});
       // 분야 탭의 "오늘" 조회 결과만 캐시에 저장합니다(다음에 같은 분야
       // 탭으로 돌아왔을 때 재조회를 건너뛰기 위함). 종합/실시간, 과거 날짜
       // 조회는 캐시하지 않습니다.
@@ -705,6 +727,31 @@ export default function Dashboard({
     return latest;
   }, [historyMode, historyResolvedAt, isTotal, collectedAt, activeStoreData, bookstores]);
 
+  // 헤더에 "최종 업데이트"로 표시할 시각. 종합(주간) 탭은 3개 서점의 rankings
+  // 저장이 실제로 모두 끝난 시각(collection_runs.run_at 기반, weeklySavedAt /
+  // historyResolvedSavedAt)을 우선 쓰고, 아직 그 값이 없으면(과거 데이터 등)
+  // 기존 collected_at 기반 activeCollectedAt으로 대체합니다. 분야별/실시간
+  // 탭은 이번 변경 대상이 아니라 기존 activeCollectedAt을 그대로 씁니다.
+  const activeWeeklySavedAt = useMemo(() => {
+    if (!isTotal) return activeCollectedAt;
+    if (historyMode) {
+      let latest = null;
+      for (const bookstore of bookstores) {
+        const t = historyResolvedSavedAt[bookstore];
+        if (t && (!latest || t > latest)) latest = t;
+      }
+      return latest || activeCollectedAt;
+    }
+    return weeklySavedAt || activeCollectedAt;
+  }, [
+    isTotal,
+    historyMode,
+    historyResolvedSavedAt,
+    bookstores,
+    weeklySavedAt,
+    activeCollectedAt,
+  ]);
+
   const allRows = useMemo(() => {
     const merged = [];
     for (const bookstore of bookstores) {
@@ -784,9 +831,15 @@ export default function Dashboard({
         >
           <img src="/logo.png" alt="위즈덤하우스" className="brand-logo" />
         </button>
-        <h1>{isRealtime ? "실시간 베스트셀러 현황" : "주간 베스트셀러 현황"}</h1>
+        <h1>
+          {isRealtime
+            ? "실시간 베스트셀러 현황"
+            : `${formatDateOnly(activeWeeklySavedAt)} 주간 베스트셀러`}
+        </h1>
         <div className="meta">
-          {formatDateTime(activeCollectedAt)} ({isRealtime ? "실시간 데이터는 수집·반영에 시간이 걸릴 수 있습니다" : "매일 KST 07:00 갱신"})
+          {isRealtime
+            ? `${formatDateTime(activeCollectedAt)} (실시간 데이터는 수집·반영에 시간이 걸릴 수 있습니다)`
+            : `최종 업데이트 ${formatTimeOnly(activeWeeklySavedAt)}`}
           <button
             type="button"
             className={`refresh-button${historyLoading ? " is-loading" : ""}`}

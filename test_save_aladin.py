@@ -392,6 +392,15 @@ def main():
     rankings_saved = len(rankings_result.data)
     print(f"rankings 테이블 저장 완료: {rankings_saved}건")
 
+    # rankings 저장이 실제로 끝난 직후의 시각을 collection_runs.run_at에 다시
+    # 기록합니다. run_at은 원래 이 run 레코드를 만들 때 DB 기본값(now())으로
+    # 채워지는데, 그 시점은 books/rankings 저장 이전이라 "실제 저장 완료 시각"과는
+    # 다릅니다. collected_at(각 rankings 행의 회차 식별자로 계속 쓰이는 값)은
+    # 건드리지 않고, 화면 표시용으로만 쓰이는 run_at만 갱신합니다.
+    saved_at = datetime.now(timezone.utc).isoformat()
+    client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id).execute()
+    print(f"collection_runs.run_at을 실제 저장 완료 시각으로 갱신: {saved_at}")
+
     # 11. 최종 콘솔 출력
     print("\n" + "=" * 80)
     print(f"알라딘 수집 성공 여부: {status}")
