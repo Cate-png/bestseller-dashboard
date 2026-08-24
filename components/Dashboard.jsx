@@ -1048,25 +1048,18 @@ export default function Dashboard({
                     {(risingByStore[bookstore] || []).length === 0 ? (
                       <p className="trend-empty">데이터가 부족합니다.</p>
                     ) : (
-                      <>
-                        <div className="trend-row-header">
-                          <span className="trend-row-header-rank">순위</span>
-                          <span className="trend-row-header-info">도서명 / 저자 / 출판사</span>
-                          <span className="trend-row-header-change">등락</span>
-                        </div>
-                        <ul className="trend-row-list">
-                          {risingByStore[bookstore].map((r) => (
-                            <TrendBookRow
-                              key={`${r.bookstore}-${r.isbn13}-rise`}
-                              rank={r.rank}
-                              title={r.title}
-                              author={r.author}
-                              publisher={r.publisher}
-                              rankChange={r.rank_change}
-                            />
-                          ))}
-                        </ul>
-                      </>
+                      <ul className="trend-row-list">
+                        {risingByStore[bookstore].map((r) => (
+                          <TrendBookRow
+                            key={`${r.bookstore}-${r.isbn13}-rise`}
+                            rank={r.rank}
+                            title={r.title}
+                            author={r.author}
+                            publisher={r.publisher}
+                            rankChange={r.rank_change}
+                          />
+                        ))}
+                      </ul>
                     )}
                   </div>
                 ))}

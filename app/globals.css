@@ -591,6 +591,15 @@ body {
   padding: 0;
 }
 
+/* .realtime-store-column ul(신규 진입 도서의 기본 불릿 목록용, 좌측에
+   불릿 자리로 26px를 둠)이 같은 컬럼 안의 .trend-row-list(급상승 도서)에도
+   상속되어 좌우 정렬이 컬럼 헤더/빈 상태 문구(10px 인셋)와 어긋나던
+   문제를 고정합니다. 급상승 도서 행은 헤더/빈 상태와 동일하게 좌우 10px,
+   상하 여백은 각 행(.trend-row)이 자체적으로 가지므로 0으로 둡니다. */
+.realtime-store-column .trend-row-list {
+  padding: 0 10px;
+}
+
 .trend-row {
   display: flex;
   align-items: flex-start;
