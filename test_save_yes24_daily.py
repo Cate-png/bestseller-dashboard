@@ -37,6 +37,9 @@ rank_change 계산: 우리 자신의 직전 '일간' 스냅샷(rankings, categor
 - realtime_rankings/realtime_collection_runs는 쓰지 않습니다.
 - YES24_API_KEY도 필요 없습니다(공개 웹페이지라 API 키 불필요, 실시간
   스크립트와 동일).
+- books 테이블은 건드립니다(rankings.isbn13 -> books.isbn13 외래키 제약
+  때문에 필수 - 실측으로 이 upsert 없이는 rankings 저장이 전량 실패함을
+  확인함). 기존 주간 스크립트와 동일한 upsert 방식을 그대로 씁니다.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
@@ -225,6 +228,33 @@ def main():
     if not books:
         print("저장할 도서 데이터가 없어 rankings 저장은 건너뜁니다.")
         sys.exit(1)
+
+    # rankings.isbn13은 books.isbn13을 참조하는 외래키(FK)라서, rankings에
+    # 넣기 전에 books에 먼저 upsert해둬야 합니다(실측: 이 upsert 없이
+    # rankings.insert만 했더니 "violates foreign key constraint
+    # rankings_isbn13_fkey"로 전량 실패함). realtime_rankings는 이 FK가
+    # 없어서 실시간 스크립트는 books를 안 건드리지만, 여기서는 기존 주간
+    # 스크립트와 동일하게 books upsert가 반드시 필요합니다.
+    books_payload = []
+    seen_isbn = set()
+    for book in books:
+        isbn13 = book.get("isbn13")
+        if not isbn13 or isbn13 in seen_isbn:
+            continue
+        seen_isbn.add(isbn13)
+        books_payload.append({
+            "isbn13": isbn13,
+            "title": book["title"],
+            "author": book["author"],
+            "publisher": book["publisher"],
+            "updated_at": collected_at,
+        })
+
+    books_saved = 0
+    if books_payload:
+        result = client.table("books").upsert(books_payload, on_conflict="isbn13").execute()
+        books_saved = len(result.data)
+    print(f"books 테이블 upsert 완료: {books_saved}건")
 
     rankings_payload = [
         {
