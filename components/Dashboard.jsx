@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isWisdomHouse } from "../lib/wisdomhouse";
 import {
-  getRisingBooks,
+  getRisingBooksByStore,
   getNewEntries,
   getSimultaneousRise,
   getCommonBooks,
@@ -76,7 +76,7 @@ function todayLocalHourStr() {
   return String(new Date().getHours()).padStart(2, "0");
 }
 
-// lib/trends.js가 이미 계산해 둔 결과(rising/newEntries)를 bookstore
+// lib/trends.js가 이미 계산해 둔 결과(newEntries 등)를 bookstore
 // 필드로만 나누는 순수 표시용 그룹화입니다. 새로운 집계/계산은 하지 않고,
 // 각 서점 목록 안의 항목·순서·값은 그대로 유지합니다.
 function groupRowsByStore(rows, bookstores) {
@@ -847,7 +847,6 @@ export default function Dashboard({
     return merged;
   }, [bookstores, storeData]);
 
-  const rising = useMemo(() => getRisingBooks(allRows, 10), [allRows]);
   const newEntries = useMemo(() => getNewEntries(allRows, 10), [allRows]);
   const simultaneousRise = useMemo(
     () => getSimultaneousRise(allRows, 2, 10),
@@ -863,12 +862,15 @@ export default function Dashboard({
     [steadyRows, bookstores]
   );
 
-  // 종합 탭 하단 트렌드 카드를 실시간 탭과 동일한 서점별 3열 구조로 보여주기
-  // 위한 표시 전용 그룹화. rising/newEntries 자체의 계산(lib/trends.js)은
-  // 그대로이고, 이미 계산된 결과를 bookstore로 나누기만 합니다.
+  // 종합 탭 하단 트렌드 카드를 실시간 탭과 동일한 서점별 3열 구조로 보여줍니다.
+  // risingByStore는 서점별로 완전히 독립적으로 TOP5를 계산합니다(getRisingBooksByStore
+  // 참고) - 절대 임계값이나 전체 풀 상위 N개 방식이 아니라서, 한 서점의
+  // rank_change가 구조적으로 크게 나와도 다른 서점이 밀려나지 않습니다.
+  // newEntriesByStore는 newEntries(lib/trends.js) 계산 결과를 bookstore로
+  // 나누기만 하는 표시 전용 그룹화입니다.
   const risingByStore = useMemo(
-    () => groupRowsByStore(rising, bookstores),
-    [rising, bookstores]
+    () => getRisingBooksByStore(allRows, bookstores, 5),
+    [allRows, bookstores]
   );
   const newEntriesByStore = useMemo(
     () => groupRowsByStore(newEntries, bookstores),
@@ -1143,10 +1145,9 @@ export default function Dashboard({
 
       {isTotal && !isPastSelection && (
       <div className="trend-section">
-        <h2>트렌드 분석 (TOP100 전체 기준)</h2>
         <div className="trend-grid">
-          <TrendCard title="급상승 도서 (직전 수집 대비)" className="trend-card-wide">
-            {rising.length === 0 ? (
+          <TrendCard title="🔥 지금 급상승 도서" className="trend-card-wide">
+            {bookstores.every((b) => (risingByStore[b] || []).length === 0) ? (
               <p className="trend-empty">데이터가 부족합니다.</p>
             ) : (
               <div className="realtime-store-columns">
