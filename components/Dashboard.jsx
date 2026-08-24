@@ -875,6 +875,50 @@ export default function Dashboard({
     [newEntries, bookstores]
   );
 
+  // 분야별 종수: 종합(주간) TOP100에 든 각 도서가 그 서점의 14개 분야별
+  // TOP20 목록 중 어디에 함께 들어있는지 isbn13으로 대조해서 셉니다.
+  // 분야별 데이터는 이미 위쪽 categoryPrefetch useEffect가 백그라운드로
+  // 14개 전부 오늘자 스냅샷을 categoryTodayCache에 채워두므로, 여기서는
+  // 새로 조회하지 않고 그 캐시를 그대로 재사용합니다(추가 네트워크 요청
+  // 없음). 한 도서가 여러 분야 TOP20에 동시에 걸쳐 있으면 두 분야 모두
+  // +1로 셉니다(합계가 종합 100권보다 커질 수 있음 - 정상). isbn13이
+  // 없거나 어느 분야 TOP20에서도 못 찾은 도서는 "미분류"로 셉니다.
+  const categoryDistribution = useMemo(() => {
+    const result = {};
+    for (const bookstore of bookstores) {
+      const totalBooks = storeData[bookstore] || [];
+      const isbnSetsByCategory = {};
+      for (const category of categories) {
+        const rows = categoryTodayCache[category]?.storeData?.[bookstore] || [];
+        isbnSetsByCategory[category] = new Set(
+          rows.map((r) => r.isbn13).filter(Boolean)
+        );
+      }
+      const counts = {};
+      for (const category of categories) counts[category] = 0;
+      let uncategorized = 0;
+      for (const book of totalBooks) {
+        let matched = false;
+        if (book.isbn13) {
+          for (const category of categories) {
+            if (isbnSetsByCategory[category].has(book.isbn13)) {
+              counts[category] += 1;
+              matched = true;
+            }
+          }
+        }
+        if (!matched) uncategorized += 1;
+      }
+      result[bookstore] = { counts, uncategorized, total: totalBooks.length };
+    }
+    return result;
+  }, [bookstores, storeData, categories, categoryTodayCache]);
+
+  const categoryDistributionLoadedCount = useMemo(
+    () => categories.filter((c) => categoryTodayCache[c]).length,
+    [categories, categoryTodayCache]
+  );
+
   // 실시간 탭 전용 인사이트: realtimeData만 사용하고(rankings/categoryData와
   // 섞지 않음), storeData 기반 allRows와는 완전히 별개의 배열입니다.
   const realtimeAllRows = useMemo(() => {
@@ -1162,6 +1206,60 @@ export default function Dashboard({
                 ))}
               </div>
             )}
+          </TrendCard>
+
+          <TrendCard title="분야별 종수 (종합 TOP100 기준)" className="trend-card-wide">
+            <p className="trend-card-desc">
+              서점별 종합 TOP100 도서가 그 서점의 14개 분야 TOP20에 몇 권씩
+              들어있는지 집계했습니다. 한 도서가 여러 분야에 동시에 들어있으면
+              두 분야 모두에 포함됩니다.
+              {categoryDistributionLoadedCount < categories.length && (
+                <> (분야 데이터 로딩 중 {categoryDistributionLoadedCount}/
+                  {categories.length})</>
+              )}
+            </p>
+            <div className="category-count-table-wrap">
+              <table className="category-count-table">
+                <thead>
+                  <tr>
+                    <th>분야</th>
+                    {bookstores.map((bookstore) => (
+                      <th key={bookstore} className={COLUMN_CLASS[bookstore] || ""}>
+                        {bookstore}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {categories.map((category) => (
+                    <tr key={category}>
+                      <td className="category-count-name">{category}</td>
+                      {bookstores.map((bookstore) => (
+                        <td key={bookstore}>
+                          {categoryDistribution[bookstore]?.counts[category] ?? 0}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr className="category-count-uncategorized">
+                    <td className="category-count-name">미분류</td>
+                    {bookstores.map((bookstore) => (
+                      <td key={bookstore}>
+                        {categoryDistribution[bookstore]?.uncategorized ?? 0}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="category-count-total">
+                    <td className="category-count-name">종합 TOP100</td>
+                    {bookstores.map((bookstore) => (
+                      <td key={bookstore}>
+                        {categoryDistribution[bookstore]?.total ?? 0}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </TrendCard>
 
           <TrendCard title="여러 서점에서 동시 상승">

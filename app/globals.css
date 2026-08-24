@@ -554,6 +554,62 @@ body {
   font-size: 12px;
 }
 
+/* "분야별 종수" 표. 다른 트렌드 카드는 전부 목록(ul/li)이라 이 카드만
+   유일하게 표를 씁니다 - 다른 카드 스타일에는 영향이 없습니다. */
+.category-count-table-wrap {
+  overflow-x: auto;
+}
+
+.category-count-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.category-count-table th,
+.category-count-table td {
+  padding: 6px 10px;
+  text-align: right;
+  border-bottom: 1px solid #eee;
+  white-space: nowrap;
+}
+
+.category-count-table th:first-child,
+.category-count-table td:first-child {
+  text-align: left;
+}
+
+.category-count-table thead th {
+  font-size: 12px;
+  color: #666;
+  font-weight: 600;
+}
+
+.category-count-name {
+  color: #444;
+}
+
+.category-count-uncategorized td,
+.category-count-total td {
+  font-weight: 600;
+}
+
+.category-count-total {
+  border-top: 2px solid #ddd;
+}
+
+.category-count-table th.kyobo {
+  color: #2d4a3e;
+}
+
+.category-count-table th.yes24 {
+  color: #1e3a8a;
+}
+
+.category-count-table th.aladin {
+  color: #d9534f;
+}
+
 /* "급상승 도서" 카드 전용 3열 행(순위 | 도서명·저자/출판사 | 등락).
    다른 트렌드 카드가 쓰는 .trend-item*과는 완전히 분리된 클래스라 다른
    카드(동시 상승, 꾸준한 강세 등)의 표시에는 영향을 주지 않습니다. */
