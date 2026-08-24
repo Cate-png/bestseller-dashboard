@@ -411,6 +411,11 @@ export default function Dashboard({
   // 버튼의 "지금으로 점프" 동작 둘 다 이 선택을 절대 건드리지 않습니다.
   const userAdjustedRealtimeRef = useRef(false);
 
+  // 실시간 탭 자동 갱신 감지 기준값. "지금까지 화면에 반영된 것으로 아는
+  // 가장 최근 실시간 회차"의 resolvedAt(=collected_at)을 들고 있습니다.
+  // null이면 아직 기준값을 세운 적이 없다는 뜻입니다(첫 틱에서만 세팅).
+  const lastKnownRealtimeRoundRef = useRef(null);
+
   // 탭을 1단(종합/실시간 베스트셀러)과 2단(분야별 14개)으로 분리해서
   // 렌더링합니다. categories(=lib/categories.js의 CATEGORIES)의 배열
   // 순서가 그대로 2단 탭의 표시 순서가 됩니다.
@@ -512,26 +517,73 @@ export default function Dashboard({
     setHistoryRealtimeHour(todayLocalHourStr());
   }, []);
 
-  // 실시간 탭을 열어둔 채로 시(hour)가 바뀌면(예: 19시 -> 20시) 자동으로
-  // 최신 시간대를 인식하게 합니다. 분 단위로 API를 호출하지 않도록, 이
-  // 타이머는 로컬 시각 비교만 가볍게 반복하다가 실제로 날짜/시가 바뀐
-  // 경우에만 syncRealtimeToNow()를 호출합니다(그 안에서 딱 1번 서버를
-  // 다시 조회). 사용자가 과거 시간대를 직접 선택해 보고 있는 중
-  // (userAdjustedRealtimeRef)에는 절대 건드리지 않습니다.
+  // 실시간 탭을 열어둔 채로 있는 동안, 실제 새 회차가 저장됐는지를 직접
+  // 확인해서 자동으로 화면을 갱신합니다.
+  //
+  // 예전에는 "시(hour)가 바뀌었는지"만 비교했는데(todayLocalHourStr()),
+  // 수집 주기가 1시간 -> 30분으로 바뀌면서 이 비교가 시대에 뒤떨어지게
+  // 됐습니다 - 13:01 회차 다음에 13:30 회차가 새로 생겨도 "13시"라는
+  // 값 자체는 그대로라 감지를 못 하고, 다음 정시(14:00)가 될 때까지
+  // 화면이 최대 수십 분간 정체되는 문제가 있었습니다(실측으로 확인:
+  // GitHub Actions는 13:34에 정상 완료·DB에도 13:30 회차가 정상
+  // 저장됐지만, 열어둔 탭은 시가 바뀌지 않아 갱신되지 않았음).
+  //
+  // 이제는 시각 비교 대신, /api/history?scope=realtime으로 "지금" 기준
+  // 실제 최신 회차의 resolvedAt(=collected_at)을 직접 조회해서 마지막으로
+  // 화면에 반영한 값과 다르면(=새 회차가 생겼으면) 그때만
+  // syncRealtimeToNow()를 호출합니다. 30분/1시간 어떤 주기로 바뀌어도
+  // 이 비교 자체는 항상 정확합니다(실제 DB 값을 직접 비교하므로). 서점
+  // 3곳 중 하나라도 새 회차가 생기면 갱신되도록 최댓값(가장 최근 값)을
+  // 기준으로 봅니다. 이 fetch는 순수 조회용이라 상태를 바꾸지 않고,
+  // 실제로 변경을 감지했을 때만 syncRealtimeToNow()가 서버를 다시
+  // 조회합니다. 첫 틱은 비교 기준값만 세우고 갱신을 트리거하지 않습니다
+  // (마운트 직후 불필요한 새로고침 방지). 사용자가 과거 시간대를 직접
+  // 선택해 보고 있는 중(userAdjustedRealtimeRef)에는 기존과 동일하게
+  // 절대 건드리지 않습니다. 주간/일간/분야별 탭은 이 useEffect가
+  // isRealtime일 때만 동작하므로 전혀 영향을 받지 않습니다.
   useEffect(() => {
     if (!isRealtime) return;
-    const HOUR_CHECK_INTERVAL_MS = 30000;
-    const id = setInterval(() => {
+    const CHECK_INTERVAL_MS = 30000;
+    let cancelled = false;
+
+    const id = setInterval(async () => {
       if (userAdjustedRealtimeRef.current) return;
-      const nowDate = todayLocalDateStr();
-      const nowHour = todayLocalHourStr();
-      if (nowDate !== historyRealtimeDate || nowHour !== historyRealtimeHour) {
-        syncRealtimeToNow();
+      try {
+        const params = new URLSearchParams({
+          scope: "realtime",
+          at: new Date().toISOString(),
+        });
+        const res = await fetch(`/api/history?${params.toString()}`);
+        if (!res.ok || cancelled) return;
+        const json = await res.json();
+        const resolvedAt = json.resolvedAt || {};
+        let latestRound = null;
+        for (const bookstore of bookstores) {
+          const t = resolvedAt[bookstore];
+          if (t && (!latestRound || t > latestRound)) latestRound = t;
+        }
+        if (!latestRound) return;
+
+        if (lastKnownRealtimeRoundRef.current === null) {
+          // 이 탭에서 처음 확인하는 것 - 기준값만 세우고 넘어갑니다.
+          lastKnownRealtimeRoundRef.current = latestRound;
+          return;
+        }
+        if (latestRound !== lastKnownRealtimeRoundRef.current) {
+          lastKnownRealtimeRoundRef.current = latestRound;
+          syncRealtimeToNow();
+        }
+      } catch (e) {
+        // 감지 실패는 조용히 무시하고 다음 주기(30초 후)에 다시 시도합니다.
       }
-    }, HOUR_CHECK_INTERVAL_MS);
-    return () => clearInterval(id);
+    }, CHECK_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRealtime, historyRealtimeDate, historyRealtimeHour]);
+  }, [isRealtime, bookstores]);
 
   // 날짜 입력값이 바뀌거나(오늘로 되돌리는 경우 포함) 탭/분야가 바뀔
   // 때마다 자동으로 다시 조회합니다. 별도의 "조회" 버튼은 없습니다. 단,
