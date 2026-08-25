@@ -159,6 +159,9 @@ export default function CategoryDistributionChart({
       otherBreakdown.sort((a, b) => b.count - a.count);
       const otherTotal = otherBreakdown.reduce((sum, o) => sum + o.count, 0);
 
+      // 슬라이스(도넛 조각 + 범례 목록)는 항상 그 서점 안에서 종수가 많은
+      // 순서대로 나열합니다 - "기타"도 예외 없이 자기 종수 기준으로 같이
+      // 정렬합니다(항상 맨 끝에 고정하지 않음).
       const slices = [...featured];
       if (otherTotal > 0) {
         slices.push({
@@ -169,6 +172,7 @@ export default function CategoryDistributionChart({
           breakdown: otherBreakdown,
         });
       }
+      slices.sort((a, b) => b.count - a.count);
 
       const denominator = featured.reduce((sum, s) => sum + s.count, 0) + otherTotal;
       result[bookstore] = { slices, denominator };
@@ -178,16 +182,28 @@ export default function CategoryDistributionChart({
 
   return (
     <div className="category-donut-wrap">
-      <p className="trend-card-desc">
-        서점별 종합 TOP100 도서가 그 서점의 14개 분야 TOP20에 몇 권씩
-        들어있는지 비중으로 보여줍니다. 한 도서가 여러 분야에 동시에
-        들어있으면 두 분야 모두에 포함되고, 비중이 작은 분야는 "기타"로
-        묶었습니다 — 슬라이스에 마우스를 올리거나 아래 "표로 보기"에서
-        분야별 정확한 종수를 그대로 확인할 수 있습니다.
+      <div className="category-donut-info-row">
+        <span className="info-icon-wrap" tabIndex={0}>
+          <span className="info-icon" aria-hidden="true">
+            i
+          </span>
+          <span className="info-icon-tooltip" role="tooltip">
+            서점별 종합 TOP100 도서가 그 서점의 14개 분야 TOP20에 몇 권씩
+            들어있는지 비중으로 보여줍니다. 한 도서가 여러 분야에 동시에
+            들어있으면 두 분야 모두에 포함되므로, 가운데 숫자(=모든 조각의
+            합)는 100건이 아니라 "분야 매칭 총 건수"이고 서점마다 겹치는
+            정도가 달라 100을 넘기는 정도도 서로 다릅니다(도서 수 자체가
+            다른 게 아닙니다). 비중이 작은 분야는 "기타"로 묶었고, 슬라이스나
+            아래 범례에 마우스를 올리거나 "표로 보기"에서 분야별 정확한
+            종수를 그대로 확인할 수 있습니다.
+          </span>
+        </span>
         {loadedCount < totalCategories && (
-          <> (분야 데이터 로딩 중 {loadedCount}/{totalCategories})</>
+          <span className="category-donut-loading-note">
+            분야 데이터 로딩 중 {loadedCount}/{totalCategories}
+          </span>
         )}
-      </p>
+      </div>
 
       <div className="category-donut-grid">
         {bookstores.map((bookstore) => {

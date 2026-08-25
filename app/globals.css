@@ -735,6 +735,71 @@ body {
   color: #999;
 }
 
+.category-donut-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.category-donut-loading-note {
+  font-size: 11.5px;
+  color: #999;
+}
+
+/* 차트 설명을 긴 문단 대신 i 아이콘 하나로 압축하고, 마우스를 올리거나
+   키보드 포커스가 갈 때만 툴팁으로 보여줍니다(hover/focus 전엔 화면 공간을
+   전혀 차지하지 않음). */
+.info-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  outline: none;
+}
+
+.info-icon {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #e3e3e3;
+  color: #666;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  user-select: none;
+}
+
+.info-icon-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  z-index: 20;
+  top: 22px;
+  left: 0;
+  width: 280px;
+  max-width: 70vw;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #555;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  transition: opacity 0.12s ease;
+}
+
+.info-icon-wrap:hover .info-icon-tooltip,
+.info-icon-wrap:focus .info-icon-tooltip,
+.info-icon-wrap:focus-within .info-icon-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
 /* "급상승 도서" 카드 전용 3열 행(순위 | 도서명·저자/출판사 | 등락).
    다른 트렌드 카드가 쓰는 .trend-item*과는 완전히 분리된 클래스라 다른
    카드(동시 상승, 꾸준한 강세 등)의 표시에는 영향을 주지 않습니다. */
