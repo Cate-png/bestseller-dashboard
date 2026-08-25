@@ -50,11 +50,20 @@ diagnose_aladin_realtime_pagination.py로 추가 확인한 내용(page=1만 수�
   섞여 있는 것을 확인했습니다:
   * '감쪽같은 수정 테이프 무소음' -> 상세페이지 isbn13이 'G000272432602'
     (알라딘 내부 굿즈 코드, 13자리 숫자 ISBN이 아님) -> "isbn13이 13자리
-    숫자인지" 검사로 걸러낼 수 있음을 실측으로 확인.
+    숫자인지" 검사로 판별.
   * '[세트] 피를 마시는 새 오디오북' -> 상세페이지 isbn13이
     '9791170528227'(유효한 13자리 숫자)로, ISBN 검사만으로는 걸러지지
     않는 경계 케이스. 오디오북은 텍스트책이 아니므로 제목에 "오디오북"이
-    포함되면 추가로 제외합니다.
+    포함되면 별도로 판별합니다.
+
+2026-08-25(정책 변경): 위 판별 기준(is_real_book, 지금은
+classify_item_type)으로 비도서를 실시간 순위권에서 아예 제외하던 것을
+그만뒀습니다. 대시보드가 "도서 판매량"뿐 아니라 서점의 전체 트렌드를
+보여주는 용도이므로 비도서도 유의미한 신호로 보고, 이제는 제외하지
+않고 그대로 저장하되 item_type 컬럼(book/audiobook/non_book)에 판별
+결과만 남겨서 화면에서 시각적으로만 구분합니다(회색 처리). 분야
+분류(store_category, 이 스크립트에는 없음)와는 완전히 별개 개념이라
+비도서를 "기타 분야"로 넣거나 하지 않습니다.
 
 기존 weekly/분야별 시스템과의 분리:
 - rankings / collection_runs / books 테이블에는 전혀 쓰지 않고,
@@ -92,7 +101,7 @@ from test_save_aladin import (
 
 BOOKSTORE = "알라딘"
 LIST_URL = "https://www.aladin.co.kr/shop/common/wbest.aspx"
-TARGET_COUNT = 100  # 확보하려는 "유효 도서"(비도서/오디오북 제외 후) 목표 개수
+TARGET_COUNT = 100  # 확보하려는 목표 개수(비도서/오디오북도 포함해서 셈)
 DETAIL_REQUEST_DELAY = 2.0
 DETAIL_CONCURRENCY = 4
 
@@ -153,42 +162,40 @@ def enrich_with_details(books):
     )
 
 
-def is_real_book(book):
-    """diagnose_realtime.py로 실측 확인된 필터. isbn13이 진짜 13자리 숫자
-    ISBN이 아니면(알라딘 내부 굿즈 코드 등) 도서가 아닌 것으로 보고 제외.
-    ISBN은 있어도 오디오북(텍스트책이 아님)이면 마찬가지로 제외."""
+def classify_item_type(book):
+    """diagnose_realtime.py로 실측 확인된 판별 기준. 예전에는 이 결과로
+    비도서를 순위권에서 아예 제외했지만, 이제는 제외하지 않고 상품
+    유형만 분류해서 저장합니다(화면에서 회색으로 구분 표시하는 용도) -
+    분야 분류(store_category)와는 완전히 별개입니다.
+
+    - isbn13이 13자리 숫자가 아니면(알라딘 내부 굿즈 코드 등) "non_book".
+    - isbn13은 유효해도 제목에 "오디오북"이 포함되면 "audiobook"
+      (텍스트책이 아니므로).
+    - 그 외는 "book"."""
     isbn13 = book.get("isbn13")
     if not isbn13 or not isbn13.isdigit() or len(isbn13) != 13:
-        return False
+        return "non_book"
     if "오디오북" in (book.get("title") or ""):
-        return False
-    return True
+        return "audiobook"
+    return "book"
 
 
 def collect_valid_books(target_valid=TARGET_COUNT):
-    """유효한 도서(is_real_book 통과)가 target_valid개 모일 때까지, 또는
-    알라딘 원본 목록이 빈 페이지를 반환할 때까지(원본 데이터 소진) 페이지를
-    계속 가져와 상세 페이지까지 조회합니다.
-
-    기존 collect_nowbest()는 목록(최대 2페이지)을 전부 모은 뒤에야 상세
-    조회 -> 필터링을 했기 때문에, 필터링 후 유효 도서가 부족해도 추가
-    페이지를 요청할 방법이 없었습니다. 이 함수는 "한 페이지 조회 -> 그
-    페이지만 상세 조회 -> 필터링 -> 유효 도서 수 확인" 순서로 페이지 단위
-    반복하여, 목표 개수(target_valid)에 도달하거나 원본이 소진될 때까지
-    계속합니다.
+    """target_valid개(기본 100)를 모을 때까지, 또는 알라딘 원본 목록이
+    빈 페이지를 반환할 때까지(원본 데이터 소진) 페이지를 계속 가져와
+    상세 페이지까지 조회합니다. 비도서(오디오북/굿즈 등)도 더 이상
+    제외하지 않고 그대로 포함하며, item_type만 분류해서 채웁니다.
 
     원본 알라딘 순위(rank)는 parse_list()가 각 페이지의 start_rank(누적
-    raw 건수 + 1)를 기준으로 매긴 값을 그대로 사용하고, 필터링 이후 다시
-    번호를 매기지 않습니다.
+    raw 건수 + 1)를 기준으로 매긴 값을 그대로 사용합니다.
 
-    반환값: (valid_books, excluded_books, raw_count)
+    반환값: (books, raw_count)
     """
-    valid_books = []
-    excluded_books = []
+    books = []
     cumulative_raw = 0
     page_num = 1
 
-    while len(valid_books) < target_valid:
+    while len(books) < target_valid:
         page_books = fetch_nowbest_page_books(page_num, cumulative_raw + 1)
         if not page_books:
             if page_num == 1:
@@ -201,21 +208,20 @@ def collect_valid_books(target_valid=TARGET_COUNT):
 
         enrich_with_details(page_books)
 
-        page_valid = 0
+        non_book_count = 0
         for book in page_books:
-            if is_real_book(book):
-                valid_books.append(book)
-                page_valid += 1
-            else:
-                excluded_books.append(book)
+            book["item_type"] = classify_item_type(book)
+            if book["item_type"] != "book":
+                non_book_count += 1
+            books.append(book)
         print(
-            f"   -> {page_num}페이지 상세조회 완료: 유효 도서 {page_valid}건, "
-            f"제외 {len(page_books) - page_valid}건 (누적 유효 도서 {len(valid_books)}/{target_valid}건)"
+            f"   -> {page_num}페이지 상세조회 완료: {len(page_books)}건 추가"
+            f"(비도서 {non_book_count}건 포함, 누적 {len(books)}/{target_valid}건)"
         )
 
         page_num += 1
 
-    return valid_books[:target_valid], excluded_books, cumulative_raw
+    return books[:target_valid], cumulative_raw
 
 
 def get_previous_realtime_ranks(client):
@@ -271,20 +277,20 @@ def main():
     collected_at = datetime.now(timezone.utc).isoformat()
     error_message = None
     books = []
-    excluded = []
     raw_count = 0
 
     try:
         print(
             f"알라딘 '지금 베스트' 목록/상세 수집 중 "
-            f"(유효 도서 {TARGET_COUNT}개 확보 또는 원본 소진까지 페이지 반복)...\n"
+            f"({TARGET_COUNT}개 확보 또는 원본 소진까지 페이지 반복, 비도서도 포함)...\n"
         )
-        books, excluded, raw_count = collect_valid_books()
+        books, raw_count = collect_valid_books()
         if not books:
-            raise RuntimeError("유효한 도서를 하나도 수집하지 못했습니다.")
+            raise RuntimeError("도서를 하나도 수집하지 못했습니다.")
+        non_book_count = sum(1 for b in books if b["item_type"] != "book")
         print(
-            f"\n목록/상세 수집 완료: raw {raw_count}건 중 유효 도서 {len(books)}건, "
-            f"제외 {len(excluded)}건.\n"
+            f"\n목록/상세 수집 완료: raw {raw_count}건 중 {len(books)}건 저장 "
+            f"(비도서 {non_book_count}건 포함, 제외 없음).\n"
         )
     except Exception as e:
         error_message = str(e)
@@ -292,14 +298,8 @@ def main():
         print(f"\n알라딘 실시간 수집이 완전히 실패했습니다: {error_message}")
 
     # 원본 알라딘 rank(parse_list가 페이지별 누적 위치로 매긴 값)를 그대로
-    # 유지한 채 정렬만 합니다. 재번호를 매기지 않으므로, 중간에 제외된
-    # 항목이 있으면 rank가 연속되지 않을 수 있습니다(예: 4, 6, 7).
+    # 유지한 채 정렬만 합니다.
     books.sort(key=lambda b: b["rank"])
-
-    if excluded:
-        print(f"\n도서가 아닌 것으로 판단해 제외한 항목 {len(excluded)}건:")
-        for b in excluded:
-            print(f"   - {b['title']} (isbn13={b.get('isbn13') or '(없음)'})")
 
     for book in books:
         isbn13 = book.get("isbn13")
@@ -342,6 +342,7 @@ def main():
             "url": book["url"],
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
+            "item_type": book.get("item_type"),
         }
         for book in books
     ]
@@ -353,13 +354,12 @@ def main():
     print(f"알라딘 실시간 수집 성공 여부: {status}")
     print(f"run_id: {run_id}")
     print(f"원본(raw) 수집 건수: {raw_count}")
-    print(f"비도서/오디오북 등으로 제외된 건수: {len(excluded)}")
-    print(f"수집 권수(유효 도서): {len(books)}")
-    print(f"realtime_rankings 저장 권수: {rankings_saved}")
+    print(f"수집 건수(비도서 포함): {len(books)}")
+    print(f"realtime_rankings 저장 건수: {rankings_saved}")
     if books:
-        print(f"저장된 도서 중 가장 큰 원본 rank: {max(b['rank'] for b in books)}")
+        print(f"저장된 항목 중 가장 큰 원본 rank: {max(b['rank'] for b in books)}")
     print("=" * 80)
-    print("실시간 TOP (순위 | 도서명 | 저자 | 출판사 | ISBN13 | 등락)")
+    print("실시간 TOP (순위 | 도서명 | 저자 | 출판사 | ISBN13 | 등락 | 유형)")
     print("=" * 80)
     for book in sorted(books, key=lambda b: b["rank"]):
         change = book["rank_change"]
@@ -373,7 +373,8 @@ def main():
             change_str = "-"
         print(
             f"{book['rank']}위 | {book['title']} | {book['author']} | "
-            f"{book['publisher']} | {book.get('isbn13') or '(없음)'} | {change_str}"
+            f"{book['publisher']} | {book.get('isbn13') or '(없음)'} | {change_str} | "
+            f"{book.get('item_type')}"
         )
 
 

@@ -19,11 +19,15 @@ span.info_pub)가 100% 동일하게 동작함을 확인했습니다. URL에 page
 페이지는 기본값으로 이미 100건이라 이 파라미터가 필요 없었음).
 
 ISBN13 상세페이지 조회(fetch_isbn13)와 동시성 유틸(enrich_with_isbn),
-비도서 필터(BOOK_GD_RES_VALUES), USER_AGENT는 test_save_yes24_realtime.py
-에서 그대로 import해서 재사용합니다(중복 구현하지 않음). 목록 파싱 함수만
-이 파일의 LIST_URL을 쓰도록 별도로 둡니다(원본 함수가 모듈 전역 LIST_URL을
-직접 참조해 import만으로는 재사용할 수 없음 - test_save_kyobo_daily.py와
-동일한 이유).
+상품유형 판별(classify_item_type/BOOK_GD_RES_VALUES), USER_AGENT는
+test_save_yes24_realtime.py에서 그대로 import해서 재사용합니다(중복
+구현하지 않음). 목록 파싱 함수만 이 파일의 LIST_URL을 쓰도록 별도로 둡니다
+(원본 함수가 모듈 전역 LIST_URL을 직접 참조해 import만으로는 재사용할 수
+없음 - test_save_kyobo_daily.py와 동일한 이유).
+
+2026-08-25(정책 변경): '[잡지]' 등 비도서로 판별된 항목도 더 이상 순위권
+에서 제외하지 않고, item_type 컬럼(book/magazine/non_book)만 채워서
+저장합니다(test_save_yes24_realtime.py와 동일한 정책 변경).
 
 rank_change 계산: 우리 자신의 직전 '일간' 스냅샷(rankings, category="일간")과
 (isbn13, url) 기준으로 비교합니다(test_save_yes24_realtime.py와 동일한
@@ -67,6 +71,7 @@ from test_save_yes24_realtime import (
     BOOK_GD_RES_VALUES,
     RANK_PATTERN,
     enrich_with_isbn,
+    classify_item_type,
 )
 
 BOOKSTORE = "예스24"
@@ -89,8 +94,7 @@ def load_daily_list(page):
     for unit in soup.select("div.itemUnit")[:TARGET_COUNT]:
         gd_res = unit.select_one("span.gd_res")
         gd_res_text = gd_res.get_text(strip=True) if gd_res else ""
-        if gd_res_text not in BOOK_GD_RES_VALUES:
-            continue
+        item_type = classify_item_type(gd_res_text)
 
         rank_tag = unit.select_one("em.ico.rank")
         rank_match = RANK_PATTERN.search(rank_tag.get_text(strip=True)) if rank_tag else None
@@ -119,6 +123,7 @@ def load_daily_list(page):
                 "url": href,
                 "author": author,
                 "publisher": publisher,
+                "item_type": item_type,
             }
         )
 
@@ -270,6 +275,7 @@ def main():
             "url": book["url"],
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
+            "item_type": book.get("item_type"),
         }
         for book in books
     ]
@@ -290,7 +296,8 @@ def main():
         print(
             f'{book["rank"]:>3}위 | {book["title"]} | '
             f'{book["author"] or "-"} | {book["publisher"] or "-"} | '
-            f'ISBN13 {book.get("isbn13") or "-"} | 등락 {change_text}'
+            f'ISBN13 {book.get("isbn13") or "-"} | 등락 {change_text} | '
+            f'유형 {book.get("item_type")}'
         )
 
 

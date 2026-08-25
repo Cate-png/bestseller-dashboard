@@ -39,6 +39,12 @@ diagnose_realtime.py로 실제로 확인한 내용:
 - test_save_yes24.py, test_save_yes24_category.py, categories.py,
   collect.yml(매일 06시 정기 수집)은 전혀 건드리지 않습니다.
 
+2026-08-25(정책 변경): gd_res 기준 비도서 판별('[잡지]' 등)로 순위권에서
+아예 제외하던 것을 그만뒀습니다(이 상수/함수는 test_save_yes24_daily.py도
+그대로 import해서 씁니다). 대시보드가 서점의 전체 트렌드를 보여주는
+용도이므로 비도서도 유의미한 신호로 보고, item_type 컬럼(book/magazine/
+non_book)에 판별 결과만 남겨서 화면에서 시각적으로만(회색) 구분합니다.
+
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
 
@@ -77,8 +83,18 @@ USER_AGENT = (
 RANK_PATTERN = re.compile(r"\d+")
 
 # 실측(diagnose_realtime.py, gd_res 값 분포 확인)으로 확인된, 도서로 인정할
-# span.gd_res 값. '[잡지]'는 정기간행물이라 제외합니다.
+# span.gd_res 값. 2026-08-25부터는 '[잡지]'(정기간행물) 등 그 외 값도
+# 더 이상 순위권에서 제외하지 않고, item_type만 구분해서 저장합니다
+# (정책 변경 - 모듈 docstring 참고).
 BOOK_GD_RES_VALUES = {"[도서]", "[만화]"}
+
+
+def classify_item_type(gd_res_text):
+    if gd_res_text in BOOK_GD_RES_VALUES:
+        return "book"
+    if gd_res_text == "[잡지]":
+        return "magazine"
+    return "non_book"
 
 
 def load_realtime_list(page):
@@ -92,11 +108,7 @@ def load_realtime_list(page):
     for unit in soup.select("div.itemUnit")[:TARGET_COUNT]:
         gd_res = unit.select_one("span.gd_res")
         gd_res_text = gd_res.get_text(strip=True) if gd_res else ""
-        if gd_res_text not in BOOK_GD_RES_VALUES:
-            # '[도서]'만 인정하던 기존 필터가 '[만화]'(만화책)까지 걸러내고
-            # 있었음을 실측으로 확인해 BOOK_GD_RES_VALUES에 추가했습니다.
-            # '[잡지]' 등 그 외 값은 도서가 아닌 것으로 보고 계속 건너뜁니다.
-            continue
+        item_type = classify_item_type(gd_res_text)
 
         rank_tag = unit.select_one("em.ico.rank")
         rank_match = RANK_PATTERN.search(rank_tag.get_text(strip=True)) if rank_tag else None
@@ -125,6 +137,7 @@ def load_realtime_list(page):
                 "url": href,
                 "author": author,
                 "publisher": publisher,
+                "item_type": item_type,
             }
         )
 
@@ -285,6 +298,7 @@ def main():
             "url": book["url"],
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
+            "item_type": book.get("item_type"),
         }
         for book in books
     ]
@@ -298,7 +312,7 @@ def main():
     print(f"수집 권수: {len(books)}")
     print(f"realtime_rankings 저장 권수: {rankings_saved}")
     print("=" * 80)
-    print("실시간 TOP20 (순위 | 도서명 | 저자 | 출판사 | ISBN13 | 등락)")
+    print("실시간 TOP20 (순위 | 도서명 | 저자 | 출판사 | ISBN13 | 등락 | 유형)")
     print("=" * 80)
     for book in sorted(books, key=lambda b: b["rank"])[:20]:
         change = book["rank_change"]
@@ -312,7 +326,8 @@ def main():
             change_str = "-"
         print(
             f"{book['rank']}위 | {book['title']} | {book['author']} | "
-            f"{book['publisher']} | {book.get('isbn13') or '(없음)'} | {change_str}"
+            f"{book['publisher']} | {book.get('isbn13') or '(없음)'} | {change_str} | "
+            f"{book.get('item_type')}"
         )
 
 

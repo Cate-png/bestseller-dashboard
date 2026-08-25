@@ -484,6 +484,18 @@ body {
   white-space: nowrap;
 }
 
+/* 비도서(오디오북/음반/굿즈 등) 행의 제목/저자·출판사 텍스트만 옅은
+   회색으로 낮춰서 일반 도서와 구분합니다. 순위 번호(.rank)와 등락
+   표시(.rank-change)는 이 규칙의 대상이 아니라 기존과 동일하게
+   나옵니다. */
+.book-title.non-book-text {
+  color: #aaa;
+}
+
+.book-sub.non-book-text {
+  color: #aaa;
+}
+
 .rank-history-button {
   flex-shrink: 0;
   border: none;

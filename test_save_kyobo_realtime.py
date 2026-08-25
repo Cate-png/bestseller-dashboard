@@ -43,8 +43,14 @@ GitHub Actions에서 실제 네트워크 응답을 확인한 근거):
   realtime_rankings / realtime_collection_runs 테이블에만 저장합니다.
 - test_save_kyobo_category.py, categories.py, collect.yml(매일 06시 정기
   수집), 예스24/알라딘 실시간 수집기는 전혀 건드리지 않습니다.
-- realtime_rankings/realtime_collection_runs 저장 구조(컬럼 구성, insert
-  방식)는 기존과 동일하게 유지합니다.
+
+2026-08-25(정책 변경): saleCmdtDvsnCode 기준 비도서 판별(디퓨저/방향제/
+음반 등)로 순위권에서 아예 제외하던 것을 그만뒀습니다. 대시보드가
+서점의 전체 트렌드를 보여주는 용도이므로 비도서도 유의미한 신호로
+보고, item_type 컬럼(book/non_book)에 판별 결과만 남겨서 화면에서
+시각적으로만(회색) 구분합니다. realtime_rankings/realtime_collection_runs
+의 다른 저장 구조(컬럼 구성, insert 방식)는 item_type 추가 외에는
+기존과 동일합니다.
 
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
@@ -93,14 +99,12 @@ def load_realtime_list(page):
     실제 확인함 - 주간 load_top100_list와 동일한 페이지네이션 구조).
 
     saleCmdtDvsnCode가 KOR/EBK가 아닌 항목(디퓨저/방향제/음반 등 비도서
-    굿즈)은 제외합니다. diagnose_kyobo_realtime_api.py로 page=6/7이 빈
-    응답임을 이미 확인했으므로(사이트 자체가 TOP100 너머의 순위 데이터를
-    제공하지 않음), 제외된 만큼 다음 순위로 백필할 방법이 없습니다 - 그래서
-    최종 저장 건수가 100건보다 적어질 수 있습니다. prstRnkn(원래 순위)은
-    재넘버링하지 않고 그대로 유지합니다(예: 45위가 비도서로 제외되면 46위는
-    그대로 46위)."""
+    굿즈)도 2026-08-25부터 더 이상 순위권에서 제외하지 않습니다(정책
+    변경 - 모듈 docstring 참고). item_to_book()이 만든 book dict에
+    item_type만("book" 또는 "non_book") 추가로 표시해서 화면에서 회색
+    처리할 수 있게 합니다. prstRnkn(원래 순위)은 그대로 씁니다."""
     books = []
-    excluded_count = 0
+    non_book_count = 0
     # 진단 전용(DB 저장 안 함): 교보 API가 각 항목에 붙이는 ymw(YYYYMMDDHH,
     # 교보 자신이 판단하는 "이 데이터가 속한 시간대") 값을 수집합니다.
     # resolvedAt(=collected_at, 우리 스크립트 시작 시각)과 이 ymw가 실제로
@@ -126,15 +130,18 @@ def load_realtime_list(page):
         for item in items:
             if not item.get("prstRnkn"):
                 continue
+            book = item_to_book(item)
             if item.get("saleCmdtDvsnCode") not in BOOK_SALE_CMDT_DVSN_CODES:
-                excluded_count += 1
+                non_book_count += 1
+                book["item_type"] = "non_book"
                 print(
-                    f"   -> 비도서로 판단해 제외: {item.get('prstRnkn')}위 "
+                    f"   -> 비도서로 판단(포함): {item.get('prstRnkn')}위 "
                     f"'{item.get('cmdtName')}' (saleCmdtDvsnCode="
                     f"{item.get('saleCmdtDvsnCode')!r})"
                 )
-                continue
-            page_books.append(item_to_book(item))
+            else:
+                book["item_type"] = "book"
+            page_books.append(book)
 
         books.extend(page_books)
         print(f"   -> {page_num}페이지에서 {len(page_books)}권 추가 (누적 {len(books)}권)")
@@ -143,10 +150,10 @@ def load_realtime_list(page):
             print(f"   진단: {page_num}페이지에서 항목을 하나도 받지 못했습니다. 여기서 중단합니다.")
             break
 
-    if excluded_count:
-        print(f"\n비도서로 판단해 제외한 항목 {excluded_count}건 (백필 불가 - page=6/7이 빈 응답임을 사전 확인함).")
+    if non_book_count:
+        print(f"\n비도서로 판단한 항목 {non_book_count}건 포함(제외하지 않음).")
     if len(books) < TARGET_COUNT:
-        print(f"진단: 목표({TARGET_COUNT}권)를 채우지 못했습니다({len(books)}권). 비도서 제외 및/또는 페이지 조회 실패가 원인일 수 있습니다.")
+        print(f"진단: 목표({TARGET_COUNT}권)를 채우지 못했습니다({len(books)}권). 페이지 조회 실패가 원인일 수 있습니다.")
 
     books.sort(key=lambda b: b["rank"])
     # 진단 전용: 함수 속성에만 남겨 main()에서 읽게 합니다. 기존 반환값(books)
@@ -301,6 +308,7 @@ def main():
             "url": book["url"],
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
+            "item_type": book.get("item_type"),
         }
         for book in books
     ]
@@ -314,7 +322,7 @@ def main():
     print(f"수집 권수: {len(books)}")
     print(f"realtime_rankings 저장 권수: {rankings_saved}")
     print("=" * 80)
-    print("실시간 TOP (순위 | 도서명 | 저자 | 출판사 | ISBN13 | 등락)")
+    print("실시간 TOP (순위 | 도서명 | 저자 | 출판사 | ISBN13 | 등락 | 유형)")
     print("=" * 80)
     for book in sorted(books, key=lambda b: b["rank"]):
         change = book["rank_change"]
@@ -328,7 +336,8 @@ def main():
             change_str = "-"
         print(
             f"{book['rank']}위 | {book['title']} | {book['author']} | "
-            f"{book['publisher']} | {book.get('isbn13') or '(없음)'} | {change_str}"
+            f"{book['publisher']} | {book.get('isbn13') or '(없음)'} | {change_str} | "
+            f"{book.get('item_type')}"
         )
 
 

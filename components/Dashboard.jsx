@@ -199,13 +199,24 @@ function TrendBookRow({ rank, title, author, publisher, rankChange, url }) {
 // onShowHistory: isbn13이 있는 행에만 "순위 변화" 버튼을 보여주고, 누르면
 // (isbn13, title)로 호출합니다. isbn13이 없는(match_status="no_isbn") 행은
 // 과거 이력을 추적할 수 없으므로 버튼 자체를 표시하지 않습니다.
+//
+// item_type: 2026-08-25부터 비도서(오디오북/음반/굿즈 등)도 더 이상 순위권에서
+// 제외하지 않고 그대로 표시합니다(정책 변경 - 대시보드가 도서 판매량뿐
+// 아니라 서점 전체 트렌드를 보여주는 용도이므로 비도서도 유의미한 신호로
+// 취급). "book"이거나 값이 없으면(과거 데이터, 종합/일간/분야별처럼 애초에
+// 비도서가 안 섞이는 탭) 일반 도서와 동일하게 표시하고, 그 외 값("audiobook"/
+// "magazine"/"non_book")이면 제목/저자·출판사 텍스트만 옅은 회색으로
+// 낮춰서 구분합니다 - 순위 번호와 등락 표시, 데이터 자체는 전혀 건드리지
+// 않습니다. 분야 분류(store_category)와는 완전히 별개 개념이라 "기타
+// 분야"로 넣지 않습니다.
 function BookRow({ row, highlightSurge, onShowHistory }) {
   const wisdom = isWisdomHouse(row.publisher);
+  const nonBook = Boolean(row.item_type) && row.item_type !== "book";
   const isSurge =
     highlightSurge && typeof row.rank_change === "number" && row.rank_change >= 20;
   const titleClass = `book-title${wisdom ? " wisdom-title" : ""}${
     isSurge ? " surge-title" : ""
-  }`;
+  }${nonBook ? " non-book-text" : ""}`;
   const titleContent = (
     <>
       {wisdom && <span className="wisdom-badge">위즈덤</span>}
@@ -228,7 +239,7 @@ function BookRow({ row, highlightSurge, onShowHistory }) {
         ) : (
           <span className={titleClass}>{titleContent}</span>
         )}
-        <div className="book-sub">
+        <div className={`book-sub${nonBook ? " non-book-text" : ""}`}>
           {row.author || "저자 미상"} · {row.publisher || "출판사 미상"}
         </div>
       </div>
