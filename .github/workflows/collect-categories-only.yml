@@ -1,0 +1,79 @@
+name: Bestseller Category Collection (Manual)
+
+# GitHub 웹에서 사람이 수동으로 분야별(14개) TOP20 수집만 돌리고 싶을 때 쓰는
+# 워크플로입니다. collect.yml(종합 TOP100 + 분야별, cron-job.org가 매일
+# 오전 6시 KST에 호출하는 정상 주간 수집)은 이 파일과 완전히 분리되어 있고
+# 전혀 건드리지 않았습니다 - 이 워크플로를 아무리 실행해도 종합 TOP100
+# 수집(rankings.category="종합")은 절대 실행되지 않고, rank_change 계산
+# 로직/DB 구조도 그대로입니다.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  kyobo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install supabase playwright
+          playwright install chromium
+
+      - name: Run Kyobo Categories
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_kyobo_category.py
+
+  yes24:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install requests supabase playwright
+          playwright install chromium
+
+      - name: Run Yes24 Categories
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          YES24_API_KEY: "${{ secrets.YES24_API_KEY }}"
+        run: python test_save_yes24_category.py
+
+  aladin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install beautifulsoup4 supabase playwright
+          playwright install chromium
+
+      - name: Run Aladin Categories
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python test_save_aladin_category.py
