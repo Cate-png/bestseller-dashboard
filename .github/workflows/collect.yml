@@ -8,8 +8,6 @@ name: Bestseller Collection
 # 같은 서점 안에서도 종합이 실패하면 분야별로 넘어가도록 유지했습니다.
 
 on:
-  schedule:
-    - cron: "30 21 * * *"
   workflow_dispatch:
 
 jobs:
