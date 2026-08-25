@@ -143,3 +143,26 @@ jobs:
 
       - name: Diagnose Aladin NowBest pagination range (read-only, no Supabase writes)
         run: python diagnose_aladin_realtime_pagination.py
+
+  # [진단 전용/1회성 - 확인 끝나면 이 job과 diagnose_yes24_category_fields.py
+  # 둘 다 삭제해도 됩니다] 예스24 종합 TOP100 API 원본 응답에 분야/카테고리
+  # 필드가 있는지 확인합니다. Supabase에 아무것도 쓰지 않고, YES24_API_KEY는
+  # 기존 collect.yml의 yes24 job과 동일하게 참조만 합니다(Secret 값 변경 없음).
+  diagnose-yes24-category-fields:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Diagnose Yes24 종합 category fields (read-only, no Supabase writes, no API key printed)
+        env:
+          YES24_API_KEY: ${{ secrets.YES24_API_KEY }}
+        run: python diagnose_yes24_category_fields.py
