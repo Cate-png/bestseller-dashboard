@@ -10,6 +10,7 @@ import {
   getCommonBooks,
 } from "../lib/trends";
 import { getSteadyBooks } from "../lib/steadyBooks";
+import { normalizeStoreCategory } from "../lib/categoryMapping";
 import {
   getRealtimeSurgingBooks,
   getRealtimeSimultaneousRise,
@@ -983,7 +984,12 @@ export default function Dashboard({
   // counts 합계 + uncategorized는 항상 total과 같습니다. store_category가
   // 아예 없는(원본을 못 가져온) 도서만 uncategorized로 셉니다 - 14개 분야
   // 밖의 실제 서점 분야(예: "어린이")는 그 이름 그대로 counts의 키가 되고
-  // "미분류"로 뭉뚱그리지 않습니다. categoryTodayCache(14개 분야 탭
+  // "미분류"로 뭉뚱그리지 않습니다. normalizeStoreCategory(lib/categoryMapping.js)로
+  // 서점별 표기 차이(예: 교보 "경제/경영" -> "경제경영")만 우리 14개
+  // 분야명에 맞춰 정규화하고, 여러 분야에 걸쳐 애매한 원본 분류(예:
+  // "소설/시/희곡")는 정규화하지 않고 원본 이름 그대로 둡니다. store_category
+  // 원본 값 자체나 DB는 전혀 바꾸지 않고 이 집계 시점에만 적용합니다.
+  // categoryTodayCache(14개 분야 탭
   // 프리페치)는 더 이상 이 계산에 쓰지 않습니다 - storeData만 있으면
   // 바로 계산되므로 14개 분야가 다 로딩될 때까지 기다릴 필요가 없어졌고,
   // 분야 탭 자체(별도 기능)는 categoryTodayCache를 여전히 그대로 씁니다.
@@ -999,7 +1005,8 @@ export default function Dashboard({
           uncategorized += 1;
           continue;
         }
-        counts[raw] = (counts[raw] || 0) + 1;
+        const normalized = normalizeStoreCategory(bookstore, raw);
+        counts[normalized] = (counts[normalized] || 0) + 1;
       }
       result[bookstore] = { counts, uncategorized, total: totalBooks.length };
     }
