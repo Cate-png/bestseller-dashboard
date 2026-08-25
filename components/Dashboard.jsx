@@ -24,6 +24,30 @@ const COLUMN_CLASS = {
   알라딘: "aladin",
 };
 
+// 순위표 헤더(서점명)를 클릭하면 이동할 서점 원본 베스트셀러 페이지.
+// 주간/일간/실시간 탭에 맞는 서점 원본 URL로 각각 연결됩니다(전부 실측
+// 확인된 실제 페이지 - 예스24 주간/실시간은 종합 TOP100을 수집하는
+// 비공개 API가 아니라 사람이 보는 공개 페이지를 별도로 확인해 채웠고,
+// 교보/알라딘은 기존 수집 스크립트(test_save_*.py)가 이미 쓰고 있는
+// URL을 그대로 재사용했습니다).
+const STORE_LINKS = {
+  교보문고: {
+    weekly: "https://store.kyobobook.co.kr/bestseller/total/weekly",
+    daily: "https://store.kyobobook.co.kr/bestseller/online/daily",
+    realtime: "https://store.kyobobook.co.kr/bestseller/realtime",
+  },
+  예스24: {
+    weekly: "https://www.yes24.com/product/category/weekbestseller?categoryNumber=001",
+    daily: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001",
+    realtime: "https://www.yes24.com/Product/Category/RealTimeBestSeller?categoryNumber=001",
+  },
+  알라딘: {
+    weekly: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=Bestseller",
+    daily: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=DailyBest",
+    realtime: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=NowBest",
+  },
+};
+
 // 헤더의 "최종 업데이트" 표시 전용: "YYYY. M. D. HH:MM" (연/월/일 사이는
 // ". "로 구분하고 월/일은 0 패딩하지 않음, 시:분만 2자리로 유지, "기준"
 // 문구는 붙이지 않음). 주간/실시간 탭 모두 이 형식을 공유합니다.
@@ -248,38 +272,61 @@ function BookColumn({
   collapsible,
   capRows,
   onShowHistory,
+  linkType,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const visibleRows = rows.filter(
     (r) => matchesSearch(r, query) && (!onlyWisdom || isWisdomHouse(r.publisher))
   );
 
-  const headerLabel = (
-    <>
-      {bookstore}{" "}
-      <span className="column-count">
-        ({visibleRows.length}/{rows.length})
-      </span>
-    </>
+  // linkType(주간/일간/실시간)에 맞는 서점 원본 페이지 URL이 있으면
+  // 서점명 자체를 그 페이지로 이동하는 링크로 만듭니다. collapsible
+  // 헤더는 기존에 헤더 전체가 <button>(모바일 접기/펼치기)이었는데,
+  // <button> 안에 <a>를 중첩하면 유효하지 않은 HTML이라 클릭 동작이
+  // 꼬이므로, 서점명(링크)과 접기/펼치기 버튼(종수+화살표)을 분리했습니다
+  // - 데스크톱에서는 이 버튼이 시각적으로 아무 효과가 없었고(접기 CSS가
+  // 모바일 전용), 모바일에서는 이제 서점명을 누르면 이동, 종수/화살표
+  // 부분을 누르면 기존처럼 접고 펼 수 있습니다.
+  const storeHref = linkType ? STORE_LINKS[bookstore]?.[linkType] : null;
+  const storeNameNode = storeHref ? (
+    <a
+      href={storeHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="column-header-store-link"
+    >
+      {bookstore}
+    </a>
+  ) : (
+    bookstore
   );
 
   return (
     <div className={`column${collapsible && collapsed ? " collapsed" : ""}`}>
       {collapsible ? (
-        <button
-          type="button"
-          className={`column-header column-header-toggle ${COLUMN_CLASS[bookstore] || ""}`}
-          onClick={() => setCollapsed((v) => !v)}
-          aria-expanded={!collapsed}
-        >
-          <span>{headerLabel}</span>
-          <span className="column-toggle-icon" aria-hidden="true">
-            ▾
-          </span>
-        </button>
+        <div className={`column-header column-header-toggle ${COLUMN_CLASS[bookstore] || ""}`}>
+          <span>{storeNameNode}</span>
+          <button
+            type="button"
+            className="column-header-collapse-btn"
+            onClick={() => setCollapsed((v) => !v)}
+            aria-expanded={!collapsed}
+            aria-label={`${bookstore} 목록 ${collapsed ? "펼치기" : "접기"}`}
+          >
+            <span className="column-count">
+              ({visibleRows.length}/{rows.length})
+            </span>
+            <span className="column-toggle-icon" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+        </div>
       ) : (
         <div className={`column-header ${COLUMN_CLASS[bookstore] || ""}`}>
-          {headerLabel}
+          {storeNameNode}{" "}
+          <span className="column-count">
+            ({visibleRows.length}/{rows.length})
+          </span>
         </div>
       )}
       <div className={`book-list${capRows ? " book-list-capped" : ""}`}>
@@ -1251,6 +1298,7 @@ export default function Dashboard({
             collapsible
             capRows={isTotal || isRealtime}
             onShowHistory={openRankHistory}
+            linkType={isRealtime ? "realtime" : isDaily ? "daily" : isTotal ? "weekly" : undefined}
           />
         ))}
       </div>

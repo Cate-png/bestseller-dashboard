@@ -350,16 +350,38 @@ body {
 .column-header.aladin { background: #d9534f; }
 
 /* 주간 베스트셀러(종합/분야별) 모바일 아코디언 헤더. 실시간 탭은 이 클래스를
-   쓰지 않는 일반 <div> 헤더 그대로 유지됩니다. */
+   쓰지 않는 일반 <div> 헤더 그대로 유지됩니다. 헤더 자체는 더 이상
+   <button>이 아니라(안에 서점명 링크를 넣기 위해) 레이아웃만 담당하는
+   <div>이고, 실제 접기/펼치기 버튼은 .column-header-collapse-btn입니다. */
 .column-header-toggle {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border: none;
-  cursor: pointer;
   text-align: left;
-  font-family: inherit;
+}
+
+/* 종수(N/M)+화살표 부분만 누르면 접고 펼 수 있는 버튼(모바일 전용 동작 -
+   접힘 자체가 데스크톱에서는 시각적 효과가 없음). 서점명 링크와는 별도
+   클릭 영역이라 링크 이동과 겹치지 않습니다. */
+.column-header-collapse-btn {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* 서점명 헤더 링크: 밑줄 없이, 기존 헤더 텍스트와 동일한 흰색/굵기를
+   그대로 유지합니다(링크라는 걸 색으로 티내지 않고 헤더 전체가 원래
+   하나의 라벨처럼 보이던 기존 디자인을 유지). */
+.column-header-store-link {
+  color: inherit;
+  text-decoration: none;
 }
 
 .column-toggle-icon {
