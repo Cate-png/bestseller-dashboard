@@ -806,8 +806,10 @@ body {
   z-index: 20;
   top: 22px;
   left: 0;
-  width: 280px;
-  max-width: 70vw;
+  width: 380px;
+  /* 뷰포트 폭이 좁을 때 width:380px가 그대로 화면 밖으로 밀려나지 않도록,
+     실제 사용 가능한 폭(뷰포트 - 좌우 여백)을 넘지 않는 선에서만 380px를 씁니다. */
+  max-width: min(380px, calc(100vw - 32px));
   background: #fff;
   border: 1px solid #ddd;
   border-radius: 6px;
@@ -816,12 +818,14 @@ body {
   line-height: 1.5;
   color: #555;
   white-space: pre-line;
+  overflow-wrap: break-word;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
   transition: opacity 0.12s ease;
 }
 
 /* 헤더 우상단처럼 화면 오른쪽 끝에 붙는 아이콘은 툴팁이 오른쪽으로 열리면
-   뷰포트 밖으로 잘릴 수 있어, 아이콘 기준 왼쪽으로 열리게 뒤집습니다. */
+   뷰포트 밖으로 잘릴 수 있어, 툴팁의 오른쪽 끝을 아이콘의 오른쪽 끝(=
+   .info-icon-wrap의 오른쪽 끝)에 고정하고 왼쪽 방향으로만 펼쳐지게 합니다. */
 .info-icon-tooltip.info-icon-tooltip-align-right {
   left: auto;
   right: 0;
@@ -1201,6 +1205,14 @@ a.trend-row-title:hover {
     right: 10px;
     gap: 3px;
     font-size: 10px;
+  }
+
+  /* 모바일에서는 .header padding(10px) + .meta right(10px) + 새로고침
+     버튼/간격(약 17px)만큼 아이콘이 화면 오른쪽 끝에서 안쪽으로 들어와
+     있어(실측 약 37px), 100vw 기준 여백을 그보다 넉넉하게 잡아야 툴팁
+     왼쪽 끝이 화면 밖으로 잘리지 않습니다. */
+  .info-icon-tooltip {
+    max-width: calc(100vw - 44px);
   }
 
   .tab-row {
