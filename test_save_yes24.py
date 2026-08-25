@@ -4,10 +4,18 @@ from datetime import datetime, timezone
 import requests
 from supabase import create_client
 
+from concurrency_utils import enrich_details_concurrently
 
 YES24_URL = "https://apis.yes24.com/v1/category/bestseller"
 CATEGORY_ID = "001"
 PAGE_SIZE = 100
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
+DETAIL_REQUEST_DELAY = 2.0
+DETAIL_CONCURRENCY = 4
 
 
 def require_env(name: str) -> str:
@@ -56,6 +64,69 @@ def fetch_yes24():
     return items
 
 
+def fetch_store_category(page, url):
+    """예스24 상품 상세페이지에서 분야 breadcrumb(a.yLocaDepth)의 2번째
+    값을 가져옵니다. 실측 확인: a.yLocaDepth 링크들이 순서대로
+    ["국내도서", 대분류, 중분류, ...]를 담고 있습니다(예: 세네카 도서 ->
+    ["국내도서","인문","인문/교양","교양으로 읽는 ..."], 처음 읽는 그리스
+    로마 신화 -> ["국내도서","어린이","1-2학년",...]). index 1(대분류)을
+    씁니다 - 교보 saleCmdtClstName, 알라딘 breadcrumb과 같은 granularity
+    (대분류 1단계)로 맞추기 위함입니다."""
+    page.goto(url, timeout=30000)
+    page.wait_for_load_state("networkidle", timeout=30000)
+    page.wait_for_timeout(1000)
+
+    links = page.locator("a.yLocaDepth")
+    if links.count() >= 2:
+        text = links.nth(1).inner_text().strip()
+        return text or None
+    return None
+
+
+def _fetch_one_category(page, probe):
+    try:
+        probe["store_category"] = fetch_store_category(page, probe["url"])
+    except Exception as e:
+        print(f"   -> 상세 페이지 조회 실패, 분야 정보 없이 저장합니다: {e}")
+        probe["store_category"] = None
+
+
+def fetch_store_categories(items):
+    """종합 TOP100 API 응답(items)의 각 도서 상세페이지(link)를 방문해
+    분야를 가져와 {url: store_category} 매핑으로 돌려줍니다.
+
+    API 응답의 isbn13/author/publisher는 이미 확정된 값이라 이 조회에
+    전혀 관여시키지 않습니다 - rank/title/url만 담은 별도 dict(probe)로
+    넘겨서, enrich_details_concurrently 끝에 있는 isbn13 기준 중복 정리
+    로직(_clear_stale_duplicate_isbns)이 이 probe들에는 항상 적용되지
+    않게(isbn13 키 자체가 없으므로 no-op) 만들었습니다 - 서로 다른 두
+    도서가 같은 isbn13(종이책/전자책 등)을 공유하는 경우에도, API가 이미
+    준 정상 isbn13/author/publisher가 이 분야 조회 때문에 잘못 지워지는
+    일이 없습니다.
+    """
+    probes = []
+    for item in items:
+        url = str(item.get("link") or "").strip()
+        if not url:
+            continue
+        probes.append(
+            {
+                "rank": item.get("sortOrder"),
+                "title": str(item.get("title") or "").strip(),
+                "url": url,
+            }
+        )
+
+    probes = enrich_details_concurrently(
+        probes,
+        fetch_one=_fetch_one_category,
+        user_agent=USER_AGENT,
+        concurrency=DETAIL_CONCURRENCY,
+        request_delay=DETAIL_REQUEST_DELAY,
+    )
+    return {p["url"]: p.get("store_category") for p in probes}
+
+
 def main():
     yes24_key = require_env("YES24_API_KEY")
     supabase_url = require_env("SUPABASE_URL")
@@ -67,6 +138,21 @@ def main():
 
     items = fetch_yes24()
     collected_at = datetime.now(timezone.utc).isoformat()
+
+    # 종합 TOP100의 원본(예스24 자체) 분야를 상세페이지에서 가져옵니다.
+    # 실패해도(예: Playwright/Chromium 문제) 순위 저장 자체는 계속
+    # 진행합니다 - store_category 없이 저장될 뿐입니다(기존 핵심 기능인
+    # 순위 저장을 이 새 기능 때문에 통째로 실패시키지 않기 위함).
+    try:
+        print(
+            f"예스24 종합 TOP100 분야 정보 조회 중 "
+            f"(상세페이지 동시성={DETAIL_CONCURRENCY})..."
+        )
+        category_by_url = fetch_store_categories(items)
+        print(f"분야 정보 조회 완료: {sum(1 for v in category_by_url.values() if v)}권\n")
+    except Exception as e:
+        print(f"분야 정보 조회 실패, store_category 없이 저장합니다: {e}\n")
+        category_by_url = {}
 
     # 1. 이번 수집 실행(run) 기록
     run_result = (
@@ -147,6 +233,7 @@ def main():
                 "url": url,
                 "match_status": "matched" if isbn13 else "no_isbn",
                 "rank_change": rank_change,
+                "store_category": category_by_url.get(url) if url else None,
             }
         )
 

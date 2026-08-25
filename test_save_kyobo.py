@@ -125,6 +125,15 @@ def item_to_book(item):
         "url": f"https://product.kyobobook.co.kr/detail/{sale_cmdtid}" if sale_cmdtid else "",
         "rank_change": rank_change,
         "match_status": "matched" if isbn13 else "no_isbn",
+        # 종합 TOP100 원본 분야(saleCmdtClstName) - best-seller API 응답에
+        # 이미 들어있는 필드입니다(실측 확인, 진단용 fetch로 캡처). 예:
+        # "인문", "소설", "어린이(초등)" 등. 분야별 TOP20 수집(saleCmdtClstCode
+        # 필터로 특정 분야만 요청)과는 무관하게, 이 필드는 응답에 항상
+        # 함께 들어옵니다. test_save_kyobo_category.py/test_save_kyobo_daily.py도
+        # 이 함수를 그대로 재사용하지만, 두 스크립트 다 각자 rankings_payload에서
+        # 필요한 키만 골라 쓰므로(store_category를 참조하지 않음) 이 필드
+        # 추가가 두 스크립트의 저장 결과에는 아무 영향을 주지 않습니다.
+        "store_category": (item.get("saleCmdtClstName") or "").strip() or None,
     }
 
 
@@ -278,6 +287,7 @@ def main():
             "url": book["url"],
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
+            "store_category": book.get("store_category"),
         }
         for book in books
     ]

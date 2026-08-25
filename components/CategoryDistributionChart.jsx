@@ -8,10 +8,11 @@ const COLUMN_CLASS = {
   알라딘: "aladin",
 };
 
-// 카테고리 슬라이스 색상: 인접 슬라이스가 6개를 넘으면 구분이 흐려지므로
-// (dataviz 가이드 - "past ~7 color classes blur"), 종수가 큰 상위 6개
-// 분야에만 고정 팔레트 색을 주고 나머지는 전부 "기타"(회색) 하나로
-// 묶습니다. 어떤 6개가 색을 받을지는 3개 서점 합산 종수로 한 번만
+// 슬라이스 색상: 인접 슬라이스가 6개를 넘으면 구분이 흐려지므로(dataviz
+// 가이드 - "past ~7 color classes blur"), 종수가 큰 상위 6개 분야에만
+// 고정 팔레트 색을 주고 나머지는 전부 "기타"(회색) 하나로 묶습니다. 어떤
+// 6개가 색을 받을지는 "실제로 관측된 모든 분야명"(우리 14개 분야든, 그
+// 외 서점 자체 분야든 구분 없이) 중 3개 서점 합산 종수로 한 번만
 // 정해서(useMemo) 서점이 달라져도 같은 분야는 항상 같은 색을 씁니다.
 const SLICE_COLORS = [
   "#2a78d6", // blue
@@ -103,35 +104,39 @@ function StoreDonut({ bookstore, slices, total, hovered, onHoverSlice }) {
 }
 
 // distribution: Dashboard.jsx의 categoryDistribution({bookstore: {counts,
-// uncategorized, total}})을 그대로 받습니다 - 새로 계산하지 않고 그 결과만
-// 원그래프용으로 다시 배치합니다. 기존 표(category-count-table)는 그대로
-// "표로 보기" 토글 안에 남겨둬서, 슬라이스로 묶인 소수 분야를 포함한 전체
-// 실제 데이터를 언제든 확인할 수 있습니다.
+// uncategorized, total}})을 그대로 받습니다. counts의 키는 더 이상 고정된
+// 14개 분야가 아니라, 각 서점이 실제로 도서에 매긴 원본 분야명(store_category)
+// 그대로입니다 - 우리 14개 분야와 이름이 같으면 그 이름 그대로, 다르면
+// (예: "어린이", "수험서/자격증") 그 이름 그대로 별도 항목이 됩니다.
+// trackedCategories(우리 14개 분야 목록)는 계산에는 안 쓰고, "그 외 분야"
+// 표시(범례의 * 표시)에만 씁니다.
 export default function CategoryDistributionChart({
   distribution,
-  categories,
+  trackedCategories,
   bookstores,
-  loadedCount,
-  totalCategories,
 }) {
   const [hovered, setHovered] = useState(null);
   const [showTable, setShowTable] = useState(false);
 
+  const trackedSet = useMemo(() => new Set(trackedCategories || []), [trackedCategories]);
+
+  // 실제로 관측된 모든 분야명(우리 14개 + 서점 자체 분야 전부)을 3개 서점
+  // 합산 종수로 정렬해, 상위 6개에만 고정 색을 배정합니다.
   const colorByCategory = useMemo(() => {
-    const combined = categories.map((category) => ({
-      category,
-      total: bookstores.reduce(
-        (sum, b) => sum + (distribution[b]?.counts[category] ?? 0),
-        0
-      ),
-    }));
-    combined.sort((a, b) => b.total - a.total);
+    const totals = new Map();
+    for (const bookstore of bookstores) {
+      const counts = distribution[bookstore]?.counts || {};
+      for (const [name, count] of Object.entries(counts)) {
+        totals.set(name, (totals.get(name) || 0) + count);
+      }
+    }
+    const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
     const map = {};
-    combined.slice(0, MAX_SLICES).forEach((c, i) => {
-      map[c.category] = SLICE_COLORS[i];
+    ranked.slice(0, MAX_SLICES).forEach(([name], i) => {
+      map[name] = SLICE_COLORS[i];
     });
     return map;
-  }, [categories, bookstores, distribution]);
+  }, [bookstores, distribution]);
 
   const chartsByStore = useMemo(() => {
     const result = {};
@@ -139,29 +144,24 @@ export default function CategoryDistributionChart({
       const dist = distribution[bookstore] || { counts: {}, uncategorized: 0, total: 0 };
       const featured = [];
       const otherBreakdown = [];
-      for (const category of categories) {
-        const count = dist.counts[category] ?? 0;
+      for (const [name, count] of Object.entries(dist.counts)) {
         if (count <= 0) continue;
-        if (colorByCategory[category]) {
+        if (colorByCategory[name]) {
           featured.push({
-            key: category,
-            label: category,
+            key: name,
+            label: name,
             count,
-            color: colorByCategory[category],
+            color: colorByCategory[name],
+            isOther: !trackedSet.has(name),
           });
         } else {
-          otherBreakdown.push({ label: category, count });
+          otherBreakdown.push({ label: name, count, isOther: !trackedSet.has(name) });
         }
       }
-      if (dist.uncategorized > 0) {
-        otherBreakdown.push({ label: "미분류", count: dist.uncategorized });
-      }
+      featured.sort((a, b) => b.count - a.count);
       otherBreakdown.sort((a, b) => b.count - a.count);
       const otherTotal = otherBreakdown.reduce((sum, o) => sum + o.count, 0);
 
-      // 슬라이스(도넛 조각 + 범례 목록)는 항상 그 서점 안에서 종수가 많은
-      // 순서대로 나열합니다 - "기타"도 예외 없이 자기 종수 기준으로 같이
-      // 정렬합니다(항상 맨 끝에 고정하지 않음).
       const slices = [...featured];
       if (otherTotal > 0) {
         slices.push({
@@ -175,10 +175,28 @@ export default function CategoryDistributionChart({
       slices.sort((a, b) => b.count - a.count);
 
       const denominator = featured.reduce((sum, s) => sum + s.count, 0) + otherTotal;
-      result[bookstore] = { slices, denominator };
+      result[bookstore] = {
+        slices,
+        denominator,
+        uncategorized: dist.uncategorized || 0,
+        total: dist.total || 0,
+      };
     }
     return result;
-  }, [bookstores, categories, distribution, colorByCategory]);
+  }, [bookstores, distribution, colorByCategory, trackedSet]);
+
+  // "표로 보기"용 전체 분야명 목록(모든 서점 합쳐서, 종수 많은 순). 고정
+  // 14개가 아니라 실제 관측된 전부라 서점마다 다를 수 있습니다.
+  const allCategoryNames = useMemo(() => {
+    const totals = new Map();
+    for (const bookstore of bookstores) {
+      const counts = distribution[bookstore]?.counts || {};
+      for (const [name, count] of Object.entries(counts)) {
+        totals.set(name, (totals.get(name) || 0) + count);
+      }
+    }
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  }, [bookstores, distribution]);
 
   return (
     <div className="category-donut-wrap">
@@ -188,42 +206,44 @@ export default function CategoryDistributionChart({
             i
           </span>
           <span className="info-icon-tooltip" role="tooltip">
-            서점별 종합 TOP100 도서가 그 서점의 14개 분야 TOP20에 몇 권씩
-            들어있는지 비중으로 보여줍니다. 한 도서가 여러 분야에 동시에
-            들어있으면 두 분야 모두에 포함되므로, 가운데 숫자(=모든 조각의
-            합)는 100건이 아니라 "분야 매칭 총 건수"이고 서점마다 겹치는
-            정도가 달라 100을 넘기는 정도도 서로 다릅니다(도서 수 자체가
-            다른 게 아닙니다). 비중이 작은 분야는 "기타"로 묶었고, 슬라이스나
-            아래 범례에 마우스를 올리거나 "표로 보기"에서 분야별 정확한
-            종수를 그대로 확인할 수 있습니다.
+            서점별 종합 TOP100 각 도서에 그 서점이 직접 매긴 분야(원본
+            분류)를 그대로 집계한 비중입니다 - 도서 한 권은 분야 하나로만
+            잡히므로 가운데 숫자는 그 서점의 TOP100 도서 수와 같습니다.
+            이름에 *가 붙은 분야는 우리가 따로 추적하는 14개 분야 목록에는
+            없는, 그 서점 자체 분류입니다. 비중이 작은 분야는 "기타"로
+            묶었고, "미분류"는 원본 분야 정보 자체를 가져오지 못한 도서입니다
+            (그 외에는 미분류로 표시하지 않습니다). 슬라이스나 아래
+            범례에 마우스를 올리거나 "표로 보기"에서 분야별 정확한 종수를
+            그대로 확인할 수 있습니다.
           </span>
         </span>
-        {loadedCount < totalCategories && (
-          <span className="category-donut-loading-note">
-            분야 데이터 로딩 중 {loadedCount}/{totalCategories}
-          </span>
-        )}
       </div>
 
       <div className="category-donut-grid">
         {bookstores.map((bookstore) => {
-          const chart = chartsByStore[bookstore] || { slices: [], denominator: 0 };
+          const chart = chartsByStore[bookstore] || {
+            slices: [],
+            denominator: 0,
+            uncategorized: 0,
+          };
           return (
             <div className="category-donut-column" key={bookstore}>
               <div className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}>
                 {bookstore}
               </div>
-              {chart.denominator === 0 ? (
+              {chart.denominator === 0 && chart.uncategorized === 0 ? (
                 <p className="trend-empty">데이터가 부족합니다.</p>
               ) : (
                 <>
-                  <StoreDonut
-                    bookstore={bookstore}
-                    slices={chart.slices}
-                    total={chart.denominator}
-                    hovered={hovered}
-                    onHoverSlice={setHovered}
-                  />
+                  {chart.denominator > 0 && (
+                    <StoreDonut
+                      bookstore={bookstore}
+                      slices={chart.slices}
+                      total={chart.denominator}
+                      hovered={hovered}
+                      onHoverSlice={setHovered}
+                    />
+                  )}
                   <ul className="category-donut-legend">
                     {chart.slices.map((slice) => (
                       <li
@@ -243,11 +263,19 @@ export default function CategoryDistributionChart({
                           style={{ background: slice.color }}
                           aria-hidden="true"
                         />
-                        <span className="category-donut-legend-label">{slice.label}</span>
+                        <span className="category-donut-legend-label">
+                          {slice.label}
+                          {slice.isOther && "*"}
+                        </span>
                         <span className="category-donut-legend-count">{slice.count}종</span>
                       </li>
                     ))}
                   </ul>
+                  {chart.uncategorized > 0 && (
+                    <p className="category-donut-uncategorized-note">
+                      이 외 미분류(원본 분야 정보 없음) {chart.uncategorized}종
+                    </p>
+                  )}
                 </>
               )}
             </div>
@@ -255,15 +283,20 @@ export default function CategoryDistributionChart({
         })}
       </div>
 
+      <p className="category-donut-footnote">* 기존 14개 추적 분야 외 서점 자체 분류</p>
+
       <div className="category-donut-tooltip" aria-live="polite">
         {hovered ? (
           <>
             <strong>
-              {hovered.bookstore} · {hovered.label}: {hovered.count}종
+              {hovered.bookstore} · {hovered.label}
+              {hovered.isOther && "*"}: {hovered.count}종
             </strong>
             {hovered.breakdown && hovered.breakdown.length > 0 && (
               <span className="category-donut-tooltip-sub">
-                {hovered.breakdown.map((b) => `${b.label} ${b.count}종`).join(" · ")}
+                {hovered.breakdown
+                  .map((b) => `${b.label}${b.isOther ? "*" : ""} ${b.count}종`)
+                  .join(" · ")}
               </span>
             )}
           </>
@@ -296,13 +329,14 @@ export default function CategoryDistributionChart({
               </tr>
             </thead>
             <tbody>
-              {categories.map((category) => (
-                <tr key={category}>
-                  <td className="category-count-name">{category}</td>
+              {allCategoryNames.map((name) => (
+                <tr key={name}>
+                  <td className="category-count-name">
+                    {name}
+                    {!trackedSet.has(name) && "*"}
+                  </td>
                   {bookstores.map((bookstore) => (
-                    <td key={bookstore}>
-                      {distribution[bookstore]?.counts[category] ?? 0}
-                    </td>
+                    <td key={bookstore}>{distribution[bookstore]?.counts[name] ?? 0}</td>
                   ))}
                 </tr>
               ))}

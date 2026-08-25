@@ -181,7 +181,26 @@ def parse_detail(html: str):
         elif "PublisherSearch=" in href:
             publisher = a.get_text(strip=True)
 
-    return {"author": ", ".join(authors), "publisher": publisher, "isbn13": isbn13}
+    # 분야(카테고리) breadcrumb: div.conts_info_list2 안의 <a> 링크들이
+    # "국내도서 > 대분류 > 중분류 > ..." 순서로 들어있음을 실측 확인했습니다
+    # (예: ["국내도서", "인문학", "서양철학", "고대철학", "고대철학 일반",
+    # "접기"] - 마지막 "접기"는 펼치기/접기 버튼이라 카테고리가 아님).
+    # 2번째 값(index 1, "국내도서" 바로 다음)을 대분류로 씁니다 - 교보
+    # saleCmdtClstName과 같은 granularity(대분류 1단계)로 맞추기 위함입니다.
+    store_category = None
+    breadcrumb = soup.select_one("div.conts_info_list2")
+    if breadcrumb:
+        crumb_links = breadcrumb.find_all("a")
+        if len(crumb_links) >= 2:
+            text = crumb_links[1].get_text(strip=True)
+            store_category = text or None
+
+    return {
+        "author": ", ".join(authors),
+        "publisher": publisher,
+        "isbn13": isbn13,
+        "store_category": store_category,
+    }
 
 
 # ─────────────────────────────────────────────
@@ -207,11 +226,12 @@ def _fetch_one_detail(page, book):
         detail = parse_detail(html)
     except Exception as e:
         print(f"   -> 상세 페이지 조회 실패, 이 도서는 제목/URL만 저장합니다: {e}")
-        detail = {"author": "", "publisher": "", "isbn13": ""}
+        detail = {"author": "", "publisher": "", "isbn13": "", "store_category": None}
 
     book["author"] = detail["author"]
     book["publisher"] = detail["publisher"]
     book["isbn13"] = detail["isbn13"] or None
+    book["store_category"] = detail.get("store_category")
 
 
 def enrich_with_details(books):
@@ -385,6 +405,7 @@ def main():
             "url": book["url"],
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
+            "store_category": book.get("store_category"),
         }
         for book in books
     ]

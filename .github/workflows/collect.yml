@@ -61,7 +61,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests supabase
+        run: |
+          pip install requests supabase playwright
+          playwright install chromium
 
       - name: Run Yes24
         id: total

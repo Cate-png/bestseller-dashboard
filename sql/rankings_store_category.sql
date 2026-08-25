@@ -1,0 +1,21 @@
+-- rankings 테이블에 "종합 TOP100 원본(서점) 분야" 저장용 nullable 컬럼을
+-- 추가합니다. 기존 category 컬럼(rankings.category="종합"/"인문" 등 우리
+-- 자체 분류)은 전혀 건드리지 않습니다 - store_category는 그와 별개로,
+-- 서점이 그 도서에 직접 매긴 원본 분류명을 그대로 담는 새 필드입니다.
+--
+-- 값 예시: 교보문고 "인문"/"어린이(초등)" (saleCmdtClstName 그대로),
+-- 알라딘 "인문학"/"소설/시/희곡" (상세페이지 breadcrumb 2번째 값),
+-- 예스24 "인문"/"어린이" (상세페이지 a.yLocaDepth 2번째 값).
+--
+-- nullable이고 기본값이 없어서, 이 마이그레이션 실행 자체는 기존 행에
+-- 전혀 영향을 주지 않습니다(전부 NULL로 채워짐 - 이후 재수집되기 전까지는
+-- "원본 분야를 아직 못 가져온" 상태와 동일하게 취급됩니다).
+--
+-- [중요] 이 마이그레이션은 test_save_kyobo.py / test_save_yes24.py /
+-- test_save_aladin.py의 종합 TOP100 저장 코드가 store_category 필드를
+-- rankings.insert()에 포함하기 시작하기 *전에* Supabase에 먼저 적용되어야
+-- 합니다. 순서가 바뀌면(컬럼 없는 상태로 코드가 먼저 배포되면) 다음
+-- 종합 TOP100 수집이 "column store_category does not exist" 오류로 전부
+-- 실패합니다. Supabase SQL Editor에서 이 파일 내용을 그대로 한 번
+-- 실행해주세요.
+alter table rankings add column if not exists store_category text;

@@ -735,6 +735,18 @@ body {
   color: #999;
 }
 
+.category-donut-uncategorized-note {
+  margin: 4px 10px 0;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.category-donut-footnote {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: #999;
+}
+
 .category-donut-info-row {
   display: flex;
   align-items: center;

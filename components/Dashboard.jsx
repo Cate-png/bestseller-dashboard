@@ -964,49 +964,37 @@ export default function Dashboard({
     [dailyAllRows, bookstores]
   );
 
-  // 분야별 종수: 종합(주간) TOP100에 든 각 도서가 그 서점의 14개 분야별
-  // TOP20 목록 중 어디에 함께 들어있는지 isbn13으로 대조해서 셉니다.
-  // 분야별 데이터는 이미 위쪽 categoryPrefetch useEffect가 백그라운드로
-  // 14개 전부 오늘자 스냅샷을 categoryTodayCache에 채워두므로, 여기서는
-  // 새로 조회하지 않고 그 캐시를 그대로 재사용합니다(추가 네트워크 요청
-  // 없음). 한 도서가 여러 분야 TOP20에 동시에 걸쳐 있으면 두 분야 모두
-  // +1로 셉니다(합계가 종합 100권보다 커질 수 있음 - 정상). isbn13이
-  // 없거나 어느 분야 TOP20에서도 못 찾은 도서는 "미분류"로 셉니다.
+  // 분야별 종수: 종합(주간) TOP100 각 도서에 저장된 store_category(서점이
+  // 그 도서에 직접 매긴 원본 분야 - 교보 saleCmdtClstName, 알라딘/예스24
+  // 상세페이지 breadcrumb)를 그대로 집계합니다. 예전에는 "14개 분야 TOP20
+  // 목록에 isbn13이 있는지"로 간접 추정했지만(그래서 14개 분야 밖 장르와
+  // TOP20 밖을 구분 못 했고, 한 책이 여러 분야에 걸쳐 합계가 100을 넘기도
+  // 했습니다), 이제 도서 하나당 store_category 값 하나로 정확히 매겨지므로
+  // counts 합계 + uncategorized는 항상 total과 같습니다. store_category가
+  // 아예 없는(원본을 못 가져온) 도서만 uncategorized로 셉니다 - 14개 분야
+  // 밖의 실제 서점 분야(예: "어린이")는 그 이름 그대로 counts의 키가 되고
+  // "미분류"로 뭉뚱그리지 않습니다. categoryTodayCache(14개 분야 탭
+  // 프리페치)는 더 이상 이 계산에 쓰지 않습니다 - storeData만 있으면
+  // 바로 계산되므로 14개 분야가 다 로딩될 때까지 기다릴 필요가 없어졌고,
+  // 분야 탭 자체(별도 기능)는 categoryTodayCache를 여전히 그대로 씁니다.
   const categoryDistribution = useMemo(() => {
     const result = {};
     for (const bookstore of bookstores) {
       const totalBooks = storeData[bookstore] || [];
-      const isbnSetsByCategory = {};
-      for (const category of categories) {
-        const rows = categoryTodayCache[category]?.storeData?.[bookstore] || [];
-        isbnSetsByCategory[category] = new Set(
-          rows.map((r) => r.isbn13).filter(Boolean)
-        );
-      }
       const counts = {};
-      for (const category of categories) counts[category] = 0;
       let uncategorized = 0;
       for (const book of totalBooks) {
-        let matched = false;
-        if (book.isbn13) {
-          for (const category of categories) {
-            if (isbnSetsByCategory[category].has(book.isbn13)) {
-              counts[category] += 1;
-              matched = true;
-            }
-          }
+        const raw = (book.store_category || "").trim();
+        if (!raw) {
+          uncategorized += 1;
+          continue;
         }
-        if (!matched) uncategorized += 1;
+        counts[raw] = (counts[raw] || 0) + 1;
       }
       result[bookstore] = { counts, uncategorized, total: totalBooks.length };
     }
     return result;
-  }, [bookstores, storeData, categories, categoryTodayCache]);
-
-  const categoryDistributionLoadedCount = useMemo(
-    () => categories.filter((c) => categoryTodayCache[c]).length,
-    [categories, categoryTodayCache]
-  );
+  }, [bookstores, storeData]);
 
   // 실시간 탭 전용 인사이트: realtimeData만 사용하고(rankings/categoryData와
   // 섞지 않음), storeData 기반 allRows와는 완전히 별개의 배열입니다.
@@ -1268,10 +1256,8 @@ export default function Dashboard({
           <TrendCard title="서점별 분야 분포 (종합 TOP100 기준)" className="trend-card-wide">
             <CategoryDistributionChart
               distribution={categoryDistribution}
-              categories={categories}
+              trackedCategories={categories}
               bookstores={bookstores}
-              loadedCount={categoryDistributionLoadedCount}
-              totalCategories={categories.length}
             />
           </TrendCard>
 
