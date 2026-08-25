@@ -368,6 +368,15 @@ body {
   overflow-y: auto;
 }
 
+/* 주간/실시간 탭 전용: 처음엔 TOP15까지만 보이고, 16위부터는 내부
+   스크롤로 봅니다(데이터는 그대로 전부 rows에 있고 검색/필터도 전체를
+   대상으로 동작 - 여기서 자르는 건 보이는 높이뿐입니다). .book-row 1행의
+   데스크톱 실측 높이는 49px(패딩 16px + 제목/부제 두 줄 + 테두리 1px)이라
+   15행 기준 735px로 고정합니다. */
+.book-list.book-list-capped {
+  max-height: 735px;
+}
+
 .book-row {
   display: flex;
   gap: 8px;
@@ -610,6 +619,122 @@ body {
   color: #d9534f;
 }
 
+/* "서점별 분야 분포" 원그래프(CategoryDistributionChart.jsx). 기존
+   category-count-table(위)은 그대로 두고 "표로 보기" 토글 뒤로 옮겼을
+   뿐이라, 표 관련 스타일은 전혀 바꾸지 않았습니다. */
+.category-donut-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.category-donut-column {
+  min-width: 0;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  overflow: hidden;
+  text-align: center;
+  padding-bottom: 10px;
+}
+
+.category-donut-svg {
+  width: 100%;
+  max-width: 180px;
+  height: auto;
+  display: block;
+  margin: 10px auto 0;
+}
+
+.category-donut-slice {
+  cursor: pointer;
+  transition: opacity 0.1s ease;
+}
+
+.category-donut-slice:hover,
+.category-donut-slice.is-hovered,
+.category-donut-slice:focus-visible {
+  opacity: 0.82;
+  outline: none;
+}
+
+.category-donut-total-value {
+  font-size: 22px;
+  font-weight: 700;
+  fill: #1a1a1a;
+}
+
+.category-donut-total-label {
+  font-size: 10.5px;
+  fill: #999;
+}
+
+.category-donut-legend {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.category-donut-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  cursor: default;
+}
+
+.category-donut-legend-item.is-hovered,
+.category-donut-legend-item:hover {
+  background: #f5f5f5;
+}
+
+.category-donut-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.category-donut-legend-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #333;
+  text-align: left;
+}
+
+.category-donut-legend-count {
+  flex-shrink: 0;
+  color: #888;
+  font-variant-numeric: tabular-nums;
+}
+
+.category-donut-tooltip {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: #333;
+  background: #f7f7f7;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.category-donut-tooltip-sub {
+  color: #888;
+  font-size: 11.5px;
+}
+
+.category-donut-tooltip-placeholder {
+  color: #999;
+}
+
 /* "급상승 도서" 카드 전용 3열 행(순위 | 도서명·저자/출판사 | 등락).
    다른 트렌드 카드가 쓰는 .trend-item*과는 완전히 분리된 클래스라 다른
    카드(동시 상승, 꾸준한 강세 등)의 표시에는 영향을 주지 않습니다. */
@@ -685,11 +810,17 @@ body {
 }
 
 .trend-row-title {
+  display: block;
   font-weight: 700;
   color: #1a1a1a;
+  text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+a.trend-row-title:hover {
+  text-decoration: underline;
 }
 
 .trend-row-sub {
@@ -1082,6 +1213,14 @@ body {
     max-height: none;
   }
 
+  /* 모바일에서도 주간/실시간 탭은 TOP15까지만 보이게 유지합니다(위
+     .book-list 규칙이 max-height를 없애는 걸 이 규칙으로 다시 덮어씁니다).
+     모바일 행은 제목/부제가 줄바꿈될 수 있어 높이가 덜 일정하므로 여유를
+     좀 더 둡니다. */
+  .book-list.book-list-capped {
+    max-height: 620px;
+  }
+
   .column-toggle-icon {
     display: inline-block;
   }
@@ -1151,6 +1290,14 @@ body {
 
   .realtime-store-columns {
     grid-template-columns: 1fr;
+  }
+
+  .category-donut-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .category-donut-svg {
+    max-width: 220px;
   }
 
   /* 급상승 도서 카드: 모바일에서도 "순위 | 도서명 | 등락"이 한 줄에

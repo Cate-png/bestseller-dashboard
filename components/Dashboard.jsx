@@ -15,6 +15,7 @@ import {
   getRealtimeSimultaneousRise,
 } from "../lib/realtimeInsights";
 import RankHistoryChart from "./RankHistoryChart";
+import CategoryDistributionChart from "./CategoryDistributionChart";
 
 const COLUMN_CLASS = {
   교보문고: "kyobo",
@@ -136,12 +137,27 @@ function TrendRiseChange({ rankChange }) {
   return <span className="trend-row-change flat">-</span>;
 }
 
-function TrendBookRow({ rank, title, author, publisher, rankChange }) {
+// url이 있으면(=서점 원본 데이터에 링크가 있으면) 제목 전체를 그 서점의
+// 원본 페이지로 이동하는 링크로 감쌉니다(기존 BookRow의 도서명 링크 처리
+// 방식과 동일 - target="_blank"/rel="noopener noreferrer"). url이 없는
+// 행은 임의로 링크를 만들지 않고 기존과 동일하게 일반 텍스트로 둡니다.
+function TrendBookRow({ rank, title, author, publisher, rankChange, url }) {
   return (
     <li className="trend-row">
       <span className="trend-row-rank">{rank}위</span>
       <span className="trend-row-info">
-        <span className="trend-row-title">{title}</span>
+        {url ? (
+          <a
+            className="trend-row-title"
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {title}
+          </a>
+        ) : (
+          <span className="trend-row-title">{title}</span>
+        )}
         <span className="trend-row-sub">
           {author || "저자 미상"} · {publisher || "출판사 미상"}
         </span>
@@ -216,6 +232,11 @@ function BookRow({ row, highlightSurge, onShowHistory }) {
 // CSS(.column.collapsed .book-list)로만 숨기고 모바일 media query 안에서만
 // 적용되므로, 데스크톱에서는 접혀 있는 상태여도 항상 목록이 그대로
 // 보입니다(기존 3열 레이아웃 유지).
+// capRows: 주간/실시간 탭에서 순위 목록을 처음엔 TOP15까지만 보여주고
+// 나머지는 내부 스크롤로 보게 합니다(book-list-capped, CSS에서 높이만
+// 제한 - 데이터 자체나 rows 배열은 전혀 자르지 않으므로 검색/필터는 기존과
+// 동일하게 전체 rows를 대상으로 동작합니다). 일간/분야별 탭은 이 prop을
+// 넘기지 않아 기존과 동일하게(데스크톱 80vh, 모바일 펼치면 전체) 동작합니다.
 function BookColumn({
   bookstore,
   rows,
@@ -224,6 +245,7 @@ function BookColumn({
   onlyWisdom,
   highlightSurge,
   collapsible,
+  capRows,
   onShowHistory,
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -259,7 +281,7 @@ function BookColumn({
           {headerLabel}
         </div>
       )}
-      <div className="book-list">
+      <div className={`book-list${capRows ? " book-list-capped" : ""}`}>
         {error && rows.length === 0 && (
           <div style={{ padding: 12, fontSize: 13, color: "#a00" }}>{error}</div>
         )}
@@ -287,6 +309,52 @@ function TrendCard({ title, children, className = "" }) {
       <h3>{title}</h3>
       {children}
     </div>
+  );
+}
+
+// "지금 급상승 도서" 카드. 주간/일간/실시간 탭이 전부 이 컴포넌트 하나를
+// 그대로 재사용합니다(디자인을 각 탭마다 따로 구현하지 않음) - 탭마다 다른
+// 건 byStore에 넘기는 데이터(risingByStore/dailyRisingByStore/
+// realtimeSurgingByStore)뿐이고, 그 계산 로직(lib/trends.js,
+// lib/realtimeInsights.js)은 전혀 건드리지 않았습니다. byStore[bookstore]의
+// 각 행은 기존과 동일하게 { rank, title, author, publisher, rank_change,
+// url, isbn13 } 형태이고, url은 항상 서점 원본 데이터에 있던 값만 씁니다.
+function SurgingBooksCard({ byStore, bookstores }) {
+  return (
+    <TrendCard title="🔥 지금 급상승 도서" className="trend-card-wide">
+      {bookstores.every((b) => (byStore[b] || []).length === 0) ? (
+        <p className="trend-empty">데이터가 부족합니다.</p>
+      ) : (
+        <div className="realtime-store-columns">
+          {bookstores.map((bookstore) => (
+            <div className="realtime-store-column" key={bookstore}>
+              <div
+                className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
+              >
+                {bookstore}
+              </div>
+              {(byStore[bookstore] || []).length === 0 ? (
+                <p className="trend-empty">데이터가 부족합니다.</p>
+              ) : (
+                <ul className="trend-row-list">
+                  {byStore[bookstore].map((r) => (
+                    <TrendBookRow
+                      key={`${bookstore}-${r.isbn13 || r.title}-${r.rank}-surge`}
+                      rank={r.rank}
+                      title={r.title}
+                      author={r.author}
+                      publisher={r.publisher}
+                      rankChange={r.rank_change}
+                      url={r.url}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </TrendCard>
   );
 }
 
@@ -877,6 +945,25 @@ export default function Dashboard({
     [newEntries, bookstores]
   );
 
+  // 일간 탭 전용 "지금 급상승 도서": dailyStoreData(category="일간")만 쓰고
+  // 종합(storeData)/실시간(realtimeData)과는 절대 섞지 않습니다. 계산은
+  // 종합 탭과 동일하게 기존 getRisingBooksByStore를 그대로 재사용합니다
+  // (새 계산 로직 없음).
+  const dailyAllRows = useMemo(() => {
+    const merged = [];
+    for (const bookstore of bookstores) {
+      for (const row of dailyStoreData[bookstore] || []) {
+        merged.push({ ...row, bookstore });
+      }
+    }
+    return merged;
+  }, [bookstores, dailyStoreData]);
+
+  const dailyRisingByStore = useMemo(
+    () => getRisingBooksByStore(dailyAllRows, bookstores, 5),
+    [dailyAllRows, bookstores]
+  );
+
   // 분야별 종수: 종합(주간) TOP100에 든 각 도서가 그 서점의 14개 분야별
   // TOP20 목록 중 어디에 함께 들어있는지 isbn13으로 대조해서 셉니다.
   // 분야별 데이터는 이미 위쪽 categoryPrefetch useEffect가 백그라운드로
@@ -1138,6 +1225,7 @@ export default function Dashboard({
             onlyWisdom={onlyWisdom}
             highlightSurge={isRealtime || isTotal || isDaily}
             collapsible
+            capRows={isTotal || isRealtime}
             onShowHistory={openRankHistory}
           />
         ))}
@@ -1146,39 +1234,7 @@ export default function Dashboard({
       {isTotal && !isPastSelection && (
       <div className="trend-section">
         <div className="trend-grid">
-          <TrendCard title="🔥 지금 급상승 도서" className="trend-card-wide">
-            {bookstores.every((b) => (risingByStore[b] || []).length === 0) ? (
-              <p className="trend-empty">데이터가 부족합니다.</p>
-            ) : (
-              <div className="realtime-store-columns">
-                {bookstores.map((bookstore) => (
-                  <div className="realtime-store-column" key={bookstore}>
-                    <div
-                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
-                    >
-                      {bookstore}
-                    </div>
-                    {(risingByStore[bookstore] || []).length === 0 ? (
-                      <p className="trend-empty">데이터가 부족합니다.</p>
-                    ) : (
-                      <ul className="trend-row-list">
-                        {risingByStore[bookstore].map((r) => (
-                          <TrendBookRow
-                            key={`${r.bookstore}-${r.isbn13}-rise`}
-                            rank={r.rank}
-                            title={r.title}
-                            author={r.author}
-                            publisher={r.publisher}
-                            rankChange={r.rank_change}
-                          />
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </TrendCard>
+          <SurgingBooksCard byStore={risingByStore} bookstores={bookstores} />
 
           <TrendCard title="신규 진입 도서" className="trend-card-wide">
             {newEntries.length === 0 ? (
@@ -1209,58 +1265,14 @@ export default function Dashboard({
             )}
           </TrendCard>
 
-          <TrendCard title="분야별 종수 (종합 TOP100 기준)" className="trend-card-wide">
-            <p className="trend-card-desc">
-              서점별 종합 TOP100 도서가 그 서점의 14개 분야 TOP20에 몇 권씩
-              들어있는지 집계했습니다. 한 도서가 여러 분야에 동시에 들어있으면
-              두 분야 모두에 포함됩니다.
-              {categoryDistributionLoadedCount < categories.length && (
-                <> (분야 데이터 로딩 중 {categoryDistributionLoadedCount}/
-                  {categories.length})</>
-              )}
-            </p>
-            <div className="category-count-table-wrap">
-              <table className="category-count-table">
-                <thead>
-                  <tr>
-                    <th>분야</th>
-                    {bookstores.map((bookstore) => (
-                      <th key={bookstore} className={COLUMN_CLASS[bookstore] || ""}>
-                        {bookstore}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {categories.map((category) => (
-                    <tr key={category}>
-                      <td className="category-count-name">{category}</td>
-                      {bookstores.map((bookstore) => (
-                        <td key={bookstore}>
-                          {categoryDistribution[bookstore]?.counts[category] ?? 0}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                  <tr className="category-count-uncategorized">
-                    <td className="category-count-name">미분류</td>
-                    {bookstores.map((bookstore) => (
-                      <td key={bookstore}>
-                        {categoryDistribution[bookstore]?.uncategorized ?? 0}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="category-count-total">
-                    <td className="category-count-name">종합 TOP100</td>
-                    {bookstores.map((bookstore) => (
-                      <td key={bookstore}>
-                        {categoryDistribution[bookstore]?.total ?? 0}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+          <TrendCard title="서점별 분야 분포 (종합 TOP100 기준)" className="trend-card-wide">
+            <CategoryDistributionChart
+              distribution={categoryDistribution}
+              categories={categories}
+              bookstores={bookstores}
+              loadedCount={categoryDistributionLoadedCount}
+              totalCategories={categories.length}
+            />
           </TrendCard>
 
           <TrendCard title="여러 서점에서 동시 상승">
@@ -1330,39 +1342,18 @@ export default function Dashboard({
       </div>
       )}
 
+      {isDaily && !isPastSelection && (
+      <div className="trend-section">
+        <div className="trend-grid">
+          <SurgingBooksCard byStore={dailyRisingByStore} bookstores={bookstores} />
+        </div>
+      </div>
+      )}
+
       {isRealtime && !isPastSelection && (
       <div className="realtime-insight-section">
-        <h2>실시간 트렌드</h2>
         <div className="realtime-insight-stack">
-          <div className="realtime-insight-card realtime-insight-card-wide">
-            <h3>🔥 지금 치고 올라오는 책</h3>
-            <div className="realtime-store-columns">
-              {bookstores.map((bookstore) => (
-                <div className="realtime-store-column" key={bookstore}>
-                  <div className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}>
-                    {bookstore}
-                  </div>
-                  {(realtimeSurgingByStore[bookstore] || []).length === 0 ? (
-                    <p className="trend-empty">아직 20위 이상 상승한 도서가 없습니다.</p>
-                  ) : (
-                    <ul>
-                      {realtimeSurgingByStore[bookstore].map((r) => (
-                        <li key={`${bookstore}-${r.isbn13 || r.title}-surge`} className="trend-item">
-                          <span className="trend-item-title">{r.title}</span>
-                          <span className="trend-item-sub">
-                            {r.author || "저자 미상"} · {r.publisher || "출판사 미상"} ·{" "}
-                            <span className="trend-item-meta-up">
-                              현재 {r.rank}위 · ▲{r.rank_change}
-                            </span>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          <SurgingBooksCard byStore={realtimeSurgingByStore} bookstores={bookstores} />
 
           <div className="realtime-insight-card realtime-insight-card-wide">
             <h3>📈 여러 서점에서 동시에 상승 중</h3>
