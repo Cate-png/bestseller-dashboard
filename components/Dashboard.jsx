@@ -499,6 +499,16 @@ export default function Dashboard({
   const isDaily = selectedCategory === DAILY_TOTAL_TAB;
   const historyMode = historyStoreData !== null;
 
+  // 헤더 "최종 업데이트" 옆 ⓘ 툴팁 문구. 실시간 탭만 수집 주기가 다르고
+  // (매시 00분·30분), 주간/일간/분야별 탭은 전부 collect.yml/
+  // collect-daily.yml이 매일 06:00 KST에 도는 동일한 스케줄이라 문구가
+  // 같습니다(분야 탭은 별도로 요청받지 않았지만, 같은 06:00 수집이라
+  // 주간과 같은 문구를 씁니다). 이 문구는 화면 표시용 안내일 뿐이라
+  // 실제 수집 로직/스케줄 자체는 전혀 건드리지 않았습니다.
+  const updateInfoText = isRealtime
+    ? "각 서점의 베스트셀러 데이터를 특정 시점에 수집한 결과입니다. 서점별 집계·업데이트 시점에 따라 실제 서점 페이지와 차이가 있을 수 있습니다.\n\n수집 시각: 매일 00분·30분"
+    : "각 서점의 베스트셀러 데이터를 특정 시점에 수집한 결과입니다. 서점별 집계·업데이트 시점에 따라 실제 서점 페이지와 차이가 있을 수 있습니다.\n\n수집 시각: 매일 오전 6:00";
+
   // 현재 탭에서 실제로 쓰이는 날짜(+시) 입력값 하나. 실시간 탭은
   // "YYYY-MM-DDTHH" 형식(분 없음)으로 합쳐서 씁니다. 이 값이 바뀌거나
   // (날짜/시 선택) 탭/분야가 바뀌면 아래 useEffect가 자동으로 다시
@@ -1046,6 +1056,23 @@ export default function Dashboard({
         </h1>
         <div className="meta">
           최종 업데이트 {formatUpdatedAt(isRealtime ? activeCollectedAt : activeWeeklySavedAt)}
+          <span className="info-icon-wrap">
+            <button
+              type="button"
+              className="info-icon"
+              aria-label="수집 시각 안내"
+              aria-describedby="update-info-tooltip"
+            >
+              i
+            </button>
+            <span
+              id="update-info-tooltip"
+              className="info-icon-tooltip info-icon-tooltip-align-right"
+              role="tooltip"
+            >
+              {updateInfoText}
+            </span>
+          </span>
           {isRealtime && (
             <button
               type="button"
