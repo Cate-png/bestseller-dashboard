@@ -64,6 +64,25 @@ realtime_collection_runs 테이블 구조, collected_at(실제 수집 시각을
 datetime.now(timezone.utc)로 기록하는 방식)은 전혀 건드리지 않습니다.
 분야별 베스트셀러 수집(collect.yml, categories.py 등)과도 무관합니다.
 
+2026-08-25: 알라딘도 30분 -> 1시간 주기로 전환하되, 예스24와는 슬롯
+시작점이 다릅니다(HOURLY_AT_30_BOOKSTORES). 실측(같은 날 여러 시간대의
+실제 GitHub Actions 로그 대조 + 03:30 회차와 04:00 회차의 수집 결과가
+순위·순서까지 완전히 동일함을 직접 확인 + CloudFront 응답 헤더가
+`x-cache: Miss`, `cache-control: private`로 나와 CDN 캐시가 원인이
+아님을 확인)로, 알라딘 "지금 베스트"는 정각(:00)이 아니라 매시 :30에
+실제 순위가 갱신되는 것으로 확인됐습니다. 그래서 정각 실행은 항상
+"30분 전과 완전히 동일한 데이터"만 받아와 등락이 전부 무변동(-)으로
+나왔던 것입니다(계산 버그가 아니라 원본 데이터 자체가 그 시점엔 아직
+안 바뀐 것). 알라딘의 슬롯은 예스24처럼 정각(:00~:59)이 아니라 매시
+30분(:30~다음 시 :29)을 기준으로 잡아, :30 실행에서만 실제로 수집하고
+정각 실행은 건너뛰게 합니다(정각 수집이 지연/실패했다면 :30 실행이
+그 시간의 유일한 수집으로 대신 진행됨 - 기존과 동일하게 "누락된 슬롯을
+대신 채워주지 않는다"는 원칙을 그대로 따름). 교보문고는 이 분기에도
+HOURLY_BOOKSTORES에도 해당하지 않아 기존 30분 슬롯 로직이 완전히
+그대로 적용됩니다. test_save_aladin_realtime.py의 rank_change 계산
+로직은 전혀 건드리지 않았습니다 - 저장 빈도 자체가 1시간에 1번(그것도
+정각이 아니라 :30 기준)으로 좁혀질 뿐입니다.
+
 사용법: python check_realtime_hour_collected.py <서점명>
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
 출력: GITHUB_OUTPUT에 already_collected=true|false 기록
@@ -74,9 +93,15 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 # 2026-08-24: 예스24만 수집 주기를 30분 -> 1시간으로 전환(사유는 모듈
-# docstring 참고). 교보문고/알라딘은 이 집합에 없으므로 기존 30분 슬롯
-# 로직이 완전히 그대로 적용됩니다.
+# docstring 참고). 교보문고는 이 집합에 없으므로 기존 30분 슬롯 로직이
+# 완전히 그대로 적용됩니다.
 HOURLY_BOOKSTORES = {"예스24"}
+
+# 2026-08-25: 알라딘도 30분 -> 1시간 주기로 전환하되, 슬롯 시작점을
+# 정각(:00)이 아니라 매시 :30으로 잡습니다(사유는 모듈 docstring 참고 -
+# 알라딘 "지금 베스트"는 정각이 아니라 :30에 실제로 갱신됨을 실측
+# 확인함).
+HOURLY_AT_30_BOOKSTORES = {"알라딘"}
 
 
 def write_output(already_collected: bool) -> None:
@@ -107,6 +132,16 @@ def main():
         # 그대로 조회하므로, 같은 시간대의 정각 수집이 이미 있으면
         # 30분 트리거는 건너뛰게 됩니다.
         slot_start = now_utc.replace(minute=0, second=0, microsecond=0)
+        slot_end = slot_start + timedelta(hours=1)
+    elif bookstore in HOURLY_AT_30_BOOKSTORES:
+        # 1시간 슬롯이지만 시작점이 정각이 아니라 :30입니다. 정각(:00)
+        # 트리거는 "직전 :30 ~ 이번 :30" 구간을 조회하므로, 이미 :30
+        # 실행에서 수집이 끝나 있으면 건너뛰고, :30 트리거는 "이번 :30 ~
+        # 다음 :30" 구간을 조회하므로 매번 새로 수집합니다.
+        if now_utc.minute >= 30:
+            slot_start = now_utc.replace(minute=30, second=0, microsecond=0)
+        else:
+            slot_start = (now_utc - timedelta(hours=1)).replace(minute=30, second=0, microsecond=0)
         slot_end = slot_start + timedelta(hours=1)
     else:
         slot_minute = 0 if now_utc.minute < 30 else 30  # 30분 슬롯 시작점(00분 또는 30분)으로 내림
