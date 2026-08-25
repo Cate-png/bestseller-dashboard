@@ -45,13 +45,42 @@ diagnose_realtime.py로 실제로 확인한 내용:
 용도이므로 비도서도 유의미한 신호로 보고, item_type 컬럼(book/magazine/
 non_book)에 판별 결과만 남겨서 화면에서 시각적으로만(회색) 구분합니다.
 
+2026-08-25(orozipdf-code/willbooks_rank의 scraper.py와 실제 동작 비교 후
+수정): 저장 구조(Supabase/collection_runs/rankings/현재 필드)와 교보·
+알라딘 수집 로직, 예스24 분야별 수집은 그대로 두고, 예스24 실시간
+페이지를 "실제로 가져오는 방식"만 willbooks_rank와 동일하게 맞췄습니다.
+- 목록 페이지를 100건 전수 실측 대조한 결과, 기존 저자 추출(span.info_auth
+  안의 <a> 태그 텍스트만 콤마로 결합)이 100/100건 전부 실제 표기와
+  다르게 나오고 있었습니다(예: "오디세이아" 실제 표기 "호메로스 저/
+  페테르 파울 루벤스 그림/박문재 역"을 "호메로스, 페테르 파울 루벤스,
+  박문재"로 저자·삽화가·역자 구분 없이 합쳐서 저장). willbooks_rank의
+  clean_yes24_author()를 그대로 가져와 저자 역할(저/역/그림 등)을
+  구분하고 "/" 앞 저자 세그먼트만 취하도록 수정했습니다(실측 100건
+  재검증 완료).
+- 대기 방식을 wait_for_load_state("networkidle") 대신 willbooks_rank와
+  동일하게 goto() 후 고정 4초 대기로 바꿨습니다(광고가 많은 페이지라
+  networkidle이 안정적으로 안 잡히는 문제 방지).
+- HTML 순회 방식(<li> -> 내부 div.itemUnit)과 제목 중복 제거를
+  willbooks_rank와 동일하게 맞췄습니다. URL도 willbooks_rank와 완전히
+  같은 표기로 맞췄습니다(대소문자만 다른 URL이 동일 페이지로 라우팅되는
+  것은 실측 확인함).
+- rank_change 계산은 (isbn13, url) 기준 비교 등 기존 구조를 그대로
+  유지하되, willbooks_rank의 load_last_snapshot()처럼 "지금과 같은
+  시간대(KST 정각 기준)" 스냅샷은 비교 기준에서 제외하는 방어 로직을
+  추가했습니다(get_previous_realtime_ranks 참고 - 수동 재실행 등으로
+  같은 시간대에 두 번 수집되는 경우에 대한 방어).
+- ISBN13 조회(fetch_isbn13, 상세페이지 방문)는 willbooks_rank에 대응
+  기능이 없어 기존 방식을 그대로 유지합니다 - 우리 시스템은 rank_change/
+  추이/동시상승이 isbn13 기반이라 이 부분은 willbooks_rank(제목 기반
+  매칭)와 구조가 다를 수밖에 없습니다.
+
 필요 환경변수: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
 
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 try:
     from playwright.sync_api import sync_playwright
@@ -70,8 +99,14 @@ from bs4 import BeautifulSoup
 from concurrency_utils import enrich_details_concurrently
 
 BOOKSTORE = "예스24"
-LIST_URL = "https://www.yes24.com/Product/Category/RealTimeBestSeller?categoryNumber=001"
-TARGET_COUNT = 100  # diagnose_realtime.py로 확인된, 이 페이지의 노출 개수(div.itemUnit 100건)
+# 2026-08-25: orozipdf-code/willbooks_rank의 scraper.py와 동일한 URL로 맞춤
+# (기존 대문자 URL도 동일 페이지로 라우팅되는 것을 실측 확인했지만, 원본과
+# 표기까지 그대로 일치시킴).
+LIST_URL = "https://www.yes24.com/product/category/realtimebestseller?categoryNumber=001"
+TARGET_COUNT = 100  # diagnose_realtime.py로 확인된, 이 페이지의 노출 개수(div.itemUnit 100건).
+# 실측(2026-08-25): 실제로는 div.itemUnit이 130개 안팎 잡히는데, 뒤쪽
+# 30개 안팎은 순위(em.ico.rank)가 없는 "함께 본 상품" 등 별도 섹션이라
+# 아래 루프에서 rank_match 없으면 건너뛰므로 최종 결과에는 영향 없음.
 DETAIL_REQUEST_DELAY = 2.0
 DETAIL_CONCURRENCY = 4
 
@@ -97,15 +132,68 @@ def classify_item_type(gd_res_text):
     return "non_book"
 
 
+# orozipdf-code/willbooks_rank의 scraper.py clean_yes24_author()를 그대로
+# 가져왔습니다(로직 동일, 우리 코드 스타일에 맞춰 이름만 유지).
+#
+# 도입 이유(2026-08-25, 실측): 기존에는 span.info_auth 안의 <a> 태그
+# 텍스트만 콤마로 이어붙였는데, 실시간베스트 TOP100을 전수 확인한 결과
+# 100/100건이 실제 표기와 다르게 나왔습니다. 예: "오디세이아"의 실제
+# 표기는 "호메로스 저/페테르 파울 루벤스 그림/박문재 역"(저자·삽화가·
+# 역자를 "/"로 구분)인데, 기존 코드는 이걸 "호메로스, 페테르 파울
+# 루벤스, 박문재"로 역할 구분 없이 합쳐서 마치 3명의 공동저자인 것처럼
+# 잘못 저장했습니다. 예스24 표기 규칙(저자/역자 등은 "/"로 역할 구분,
+# 같은 역할의 공동저자는 ","로 구분)에 맞춰 "/" 첫 번째 세그먼트(저자
+# 역할)만 취하고 역할 표기(저/역/그림 등)와 "외 N명" 패턴을 정리합니다.
+def clean_yes24_author(raw):
+    ROLE_ONLY = {"저", "역", "글", "편", "감", "그림", "사진", "기획", "감수"}
+    if not raw:
+        return ""
+    raw = re.sub(r"정보\s*더\s*보기.*", "", raw)
+    raw = re.sub(r"\s+", " ", raw).strip()
+    if not raw:
+        return ""
+    first_segment = raw.split("/")[0].strip()
+    subparts = [sp.strip() for sp in re.split(r"[,·]", first_segment) if sp.strip()]
+    authors = []
+    for sp in subparts:
+        name = re.sub(r"\s*\([^)]*\)", "", sp).strip()
+        name = re.sub(r"(편저|편역|번역|저자|역자|감수자|지은이|옮긴이|엮은이|저술|기획|편집|글그림)$", "", name).strip()
+        name = re.sub(r"\s+(저|역|글|편|감|그림)$", "", name).strip()
+        m = re.search(r"\s*외\s*\d*\s*명?", name)
+        if m:
+            name = name[: m.start()].strip()
+            if name and name not in ROLE_ONLY:
+                authors.append(name)
+                return (authors[0] + " 외") if authors else (name + " 외" if name else "")
+        if name and name not in ROLE_ONLY:
+            authors.append(name)
+    if not authors:
+        return raw
+    return authors[0] if len(authors) == 1 else authors[0] + " 외"
+
+
 def load_realtime_list(page):
+    # willbooks_rank/scraper.py의 fetch_html()과 동일하게, networkidle을
+    # 기다리지 않고 goto() 후 고정 4초만 대기합니다. 예스24는 광고/추적
+    # 스크립트가 계속 통신을 시도해서 networkidle이 30초 타임아웃까지
+    # 걸리거나 아예 예외로 전체 수집이 실패하는 경우가 있었습니다.
     page.goto(LIST_URL, timeout=30000)
-    page.wait_for_load_state("networkidle", timeout=30000)
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(4000)
     html = page.content()
 
     soup = BeautifulSoup(html, "html.parser")
     books = []
-    for unit in soup.select("div.itemUnit")[:TARGET_COUNT]:
+    seen_titles = set()
+    # willbooks_rank와 동일하게 <li> -> 내부 div.itemUnit 순서로 순회합니다
+    # (div.itemUnit을 직접 select하는 것과 결과는 같지만, 원본과 파싱
+    # 구조를 그대로 맞췄습니다).
+    for li in soup.find_all("li"):
+        if len(books) >= TARGET_COUNT:
+            break
+        unit = li.find("div", class_="itemUnit")
+        if not unit:
+            continue
+
         gd_res = unit.select_one("span.gd_res")
         gd_res_text = gd_res.get_text(strip=True) if gd_res else ""
         item_type = classify_item_type(gd_res_text)
@@ -123,11 +211,17 @@ def load_realtime_list(page):
             href = "https://www.yes24.com" + href
         if not title or not href:
             continue
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
 
-        author_links = unit.select("span.info_auth a")
-        author = ", ".join(a.get_text(strip=True) for a in author_links)
+        # separator=' ': <a> 태그 사이 공백을 보존해서 이름이 붙어버리지
+        # 않게 합니다(willbooks_rank와 동일).
+        auth_span = unit.select_one("span.info_auth")
+        raw_author = auth_span.get_text(separator=" ", strip=True) if auth_span else ""
+        author = clean_yes24_author(raw_author)
 
-        publisher_tag = unit.select_one("span.info_pub a")
+        publisher_tag = unit.select_one("span.info_pub")
         publisher = publisher_tag.get_text(strip=True) if publisher_tag else ""
 
         books.append(
@@ -176,7 +270,7 @@ def enrich_with_isbn(books):
     )
 
 
-def get_previous_realtime_ranks(client):
+def get_previous_realtime_ranks(client, now_utc=None):
     """직전 회차의 (isbn13, url) -> rank 매핑을 돌려줍니다.
 
     isbn13만으로 매핑하면 안 됩니다 - 종이책/전자책처럼 같은 ISBN13을 공유하는
@@ -186,19 +280,43 @@ def get_previous_realtime_ranks(client):
     (isbn13, url) 조합을 키로 써서 이런 충돌을 막습니다. 예스24는 현재
     데이터에서 이 중복이 확인되지는 않았지만, 동일한 코드 패턴이라 잠재적으로
     같은 문제가 생길 수 있어 함께 방어합니다.
-    """
-    latest = (
+
+    2026-08-25: orozipdf-code/willbooks_rank의 load_last_snapshot()과
+    동일하게, "지금과 같은 시간대(KST 정각 기준)"의 스냅샷은 비교 기준에서
+    건너뛰고 그 이전 시간대의 마지막 스냅샷을 기준으로 삼습니다. 예스24는
+    이미 1시간 주기로만 자동 수집되어(check_realtime_hour_collected.py의
+    HOURLY_BOOKSTORES) 정상 운영 중에는 이 문제가 잘 안 생기지만, 같은
+    시간대에 workflow_dispatch를 수동으로 다시 실행하면(알라딘 실시간에서
+    실제로 겪었던 것과 같은 패턴) 방금 수집한 것과 거의 동일한 스냅샷을
+    비교 기준으로 삼게 되어 등락이 전부 "-"로 나오는 문제가 생길 수 있어
+    방어 차원에서 추가합니다."""
+    now_utc = now_utc or datetime.now(timezone.utc)
+    current_hour_kst = (now_utc + timedelta(hours=9)).strftime("%Y-%m-%dT%H")
+
+    recent = (
         client.table("realtime_rankings")
         .select("collected_at")
         .eq("bookstore", BOOKSTORE)
         .order("collected_at", desc=True)
-        .limit(1)
+        .limit(500)
         .execute()
     )
-    if not latest.data:
+    if not recent.data:
         return {}
 
-    latest_collected_at = latest.data[0]["collected_at"]
+    latest_collected_at = None
+    for row in recent.data:
+        collected_at = row["collected_at"]
+        hour_kst = (
+            datetime.fromisoformat(collected_at.replace("Z", "+00:00")) + timedelta(hours=9)
+        ).strftime("%Y-%m-%dT%H")
+        if hour_kst != current_hour_kst:
+            latest_collected_at = collected_at
+            break
+
+    if latest_collected_at is None:
+        return {}
+
     prev = (
         client.table("realtime_rankings")
         .select("isbn13, url, rank")

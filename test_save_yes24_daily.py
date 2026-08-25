@@ -72,6 +72,7 @@ from test_save_yes24_realtime import (
     RANK_PATTERN,
     enrich_with_isbn,
     classify_item_type,
+    clean_yes24_author,
 )
 
 BOOKSTORE = "예스24"
@@ -83,7 +84,13 @@ TARGET_COUNT = 100
 def load_daily_list(page):
     """일별 베스트 페이지를 한 번 열어(pageSize=100) 최대 100권을 모읍니다.
     실시간 스크립트의 load_realtime_list()와 동일한 셀렉터를 이 파일의
-    LIST_URL(일별 페이지)에 적용합니다."""
+    LIST_URL(일별 페이지)에 적용합니다.
+
+    2026-08-25: 저자 추출을 실시간 스크립트와 동일하게 clean_yes24_author()
+    기반으로 바꿨습니다 - 기존 <a> 링크 텍스트만 잇는 방식은 저자/역자/
+    삽화가 등 역할 구분 없이 전부 공동저자처럼 합쳐 저장하는 문제가
+    실시간 쪽에서 실측 확인됐고, 이 파일도 동일한 셀렉터/구조라 똑같이
+    영향을 받습니다(모듈 docstring 참고)."""
     page.goto(LIST_URL, timeout=30000)
     page.wait_for_load_state("networkidle", timeout=30000)
     page.wait_for_timeout(2000)
@@ -91,7 +98,14 @@ def load_daily_list(page):
 
     soup = BeautifulSoup(html, "html.parser")
     books = []
-    for unit in soup.select("div.itemUnit")[:TARGET_COUNT]:
+    seen_titles = set()
+    for li in soup.find_all("li"):
+        if len(books) >= TARGET_COUNT:
+            break
+        unit = li.find("div", class_="itemUnit")
+        if not unit:
+            continue
+
         gd_res = unit.select_one("span.gd_res")
         gd_res_text = gd_res.get_text(strip=True) if gd_res else ""
         item_type = classify_item_type(gd_res_text)
@@ -109,11 +123,15 @@ def load_daily_list(page):
             href = "https://www.yes24.com" + href
         if not title or not href:
             continue
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
 
-        author_links = unit.select("span.info_auth a")
-        author = ", ".join(a.get_text(strip=True) for a in author_links)
+        auth_span = unit.select_one("span.info_auth")
+        raw_author = auth_span.get_text(separator=" ", strip=True) if auth_span else ""
+        author = clean_yes24_author(raw_author)
 
-        publisher_tag = unit.select_one("span.info_pub a")
+        publisher_tag = unit.select_one("span.info_pub")
         publisher = publisher_tag.get_text(strip=True) if publisher_tag else ""
 
         books.append(
