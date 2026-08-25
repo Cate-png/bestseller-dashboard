@@ -8,20 +8,30 @@ const COLUMN_CLASS = {
   알라딘: "aladin",
 };
 
-// 슬라이스 색상: 인접 슬라이스가 6개를 넘으면 구분이 흐려지므로(dataviz
-// 가이드 - "past ~7 color classes blur"), 종수가 큰 상위 6개 분야에만
-// 고정 팔레트 색을 주고 나머지는 전부 "기타"(회색) 하나로 묶습니다. 어떤
-// 6개가 색을 받을지는 "실제로 관측된 모든 분야명"(우리 14개 분야든, 그
-// 외 서점 자체 분야든 구분 없이) 중 3개 서점 합산 종수로 한 번만
-// 정해서(useMemo) 서점이 달라져도 같은 분야는 항상 같은 색을 씁니다.
-const SLICE_COLORS = [
-  "#2a78d6", // blue
-  "#eb6834", // orange
-  "#1baf7a", // aqua
-  "#eda100", // yellow
-  "#e87ba4", // magenta
-  "#008300", // green
-];
+// 우리 14개 분야(lib/categories.js CATEGORIES, dataviz 팔레트 검증기로
+// 검증된 고정 팔레트) 전용 색상을 "분야명 -> 색상"으로 완전히 고정합니다.
+// count 순위나 서점별 정렬 순서로 색을 배정하지 않으므로, 어느 서점에서
+// 보든 같은 분야는 항상 같은 색이고, 데이터가 바뀌어도(다음 주 수집,
+// 다른 서점) 색이 바뀌지 않습니다. 한 번에 화면에 보이는 슬라이스는
+// MAX_SLICES(6)개로 여전히 제한하지만(인접 슬라이스가 6개를 넘으면
+// 구분이 흐려짐 - dataviz 가이드), "어떤 6개가 보일지"만 종수로 정하고
+// "그 6개가 무슨 색일지"는 이 표에서 고정으로 가져옵니다.
+const CATEGORY_COLORS = {
+  인문: "#2a78d6",
+  경제경영: "#eb6834",
+  자기계발: "#1baf7a",
+  소설: "#eda100",
+  "에세이/시": "#e87ba4",
+  사회과학: "#008300",
+  역사: "#7a4fd1",
+  예술: "#c94c4c",
+  과학: "#1e93a8",
+  만화: "#8a8f00",
+  여행: "#d1789a",
+  건강: "#2f8f5b",
+  "기술/IT": "#9a5fd6",
+  종교: "#b06a2a",
+};
 const OTHER_COLOR = "#9a9893";
 const MAX_SLICES = 6;
 
@@ -120,23 +130,27 @@ export default function CategoryDistributionChart({
 
   const trackedSet = useMemo(() => new Set(trackedCategories || []), [trackedCategories]);
 
-  // 실제로 관측된 모든 분야명(우리 14개 + 서점 자체 분야 전부)을 3개 서점
-  // 합산 종수로 정렬해, 상위 6개에만 고정 색을 배정합니다.
+  // 우리 14개 분야만 색상 슬롯 경쟁에 넣고(서점 자체 분야는 색을 배정하지
+  // 않고 항상 기타로 묶임), 3개 서점 합산 종수로 상위 6개를 정해 그
+  // 분야가 화면에 슬라이스로 보일지만 결정합니다. 어떤 색을 쓸지는 순위가
+  // 아니라 CATEGORY_COLORS(분야명 -> 고정 색상)에서 그대로 가져오므로,
+  // 데이터가 바뀌어도 같은 분야는 항상 같은 색입니다.
   const colorByCategory = useMemo(() => {
     const totals = new Map();
     for (const bookstore of bookstores) {
       const counts = distribution[bookstore]?.counts || {};
       for (const [name, count] of Object.entries(counts)) {
+        if (!trackedSet.has(name)) continue;
         totals.set(name, (totals.get(name) || 0) + count);
       }
     }
     const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
     const map = {};
-    ranked.slice(0, MAX_SLICES).forEach(([name], i) => {
-      map[name] = SLICE_COLORS[i];
+    ranked.slice(0, MAX_SLICES).forEach(([name]) => {
+      map[name] = CATEGORY_COLORS[name];
     });
     return map;
-  }, [bookstores, distribution]);
+  }, [bookstores, distribution, trackedSet]);
 
   const chartsByStore = useMemo(() => {
     const result = {};
