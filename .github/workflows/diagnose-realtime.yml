@@ -4,7 +4,7 @@ name: Diagnose Realtime Bestseller Pages
 # 실시간 페이지의 실제 구조(도서만 나오는지, 기존 selector가 재사용
 # 가능한지)를 확인하기 위한 1회성 진단 워크플로입니다. Supabase에 아무것도
 # 쓰지 않는 읽기 전용 스크립트(diagnose_realtime.py)만 실행하며, 기존
-# collect.yml(매일 06시 정기 수집)과는 완전히 별개입니다. 수동 실행만
+# collect.yml(매일 07시 정기 수집)과는 완전히 별개입니다. 수동 실행만
 # 가능하고 스케줄은 없습니다.
 
 on:

@@ -1,7 +1,7 @@
 name: Daily Bestseller Collection
 
 # 종합 일간 베스트셀러(rankings.category="일간") 전용 워크플로입니다.
-# 기존 collect.yml(매일 06:30 KST, 주간/분야별 수집)과 collect-realtime.yml
+# 기존 collect.yml(매일 07:00 KST, 주간/분야별 수집)과 collect-realtime.yml
 # (30분 간격 실시간 수집)은 전혀 건드리지 않고, 이 파일에만 일간용 스케줄을
 # 추가합니다.
 #
