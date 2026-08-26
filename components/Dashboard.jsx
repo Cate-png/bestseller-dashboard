@@ -45,6 +45,34 @@ const STORE_LINKS = {
   },
 };
 
+// "표지 보기" 전용 표지 이미지 URL 생성. 표지 이미지 자체를 새로 크롤링/
+// API 호출하지 않고, 이미 저장돼 있는 필드(isbn13/url)만으로 각 서점의
+// 실제 이미지 서버 URL 규칙에 맞춰 프론트에서 조립합니다(DB/수집
+// 스크립트는 전혀 건드리지 않음, 2026-08-26 실측 확인):
+// - 교보문고: 표지 URL이 ISBN13 하나로 결정됨
+//   (contents.kyobobook.co.kr/sih/fit-in/300x0/pdt/{isbn13}.jpg).
+// - 예스24: 표지 URL이 상품 ID로 결정되고, 그 ID가 이미 저장 중인
+//   row.url(.../product/goods/{id}) 안에 그대로 들어있어 정규식으로
+//   추출만 하면 됨(image.yes24.com/goods/{id}/L).
+// - 알라딘: 표지 URL이 ISBN13/상품 URL과 무관한 별도 자산 코드라
+//   기존 데이터만으로는 조립 불가능 - 이번 작업 범위에서 제외하고
+//   null을 돌려줍니다(수집 스크립트에 이미지 URL 파싱 추가 + DB
+//   cover_url 컬럼 추가는 별도 작업으로 남겨둠).
+// 두 서점 다 이미지 서버가 referer 체크 없이 공개 캐싱(CDN, 1년 캐시)
+// 되는 것도 직접 curl로 확인했습니다.
+function getCoverUrl(bookstore, row) {
+  if (bookstore === "교보문고") {
+    return row.isbn13
+      ? `https://contents.kyobobook.co.kr/sih/fit-in/300x0/pdt/${row.isbn13}.jpg`
+      : null;
+  }
+  if (bookstore === "예스24") {
+    const match = (row.url || "").match(/\/goods\/(\d+)/);
+    return match ? `https://image.yes24.com/goods/${match[1]}/L` : null;
+  }
+  return null;
+}
+
 // 헤더의 "최종 업데이트" 표시 전용: "YYYY. M. D. HH:MM" (연/월/일 사이는
 // ". "로 구분하고 월/일은 0 패딩하지 않음, 시:분만 2자리로 유지, "기준"
 // 문구는 붙이지 않음). 주간/실시간 탭 모두 이 형식을 공유합니다.
@@ -239,6 +267,71 @@ function BookRow({ row, highlightSurge, onShowHistory }) {
   );
 }
 
+// "표지 보기" 전용 카드 1개. BookRow와 같은 row 데이터를 그대로 쓰고
+// (새 필드 없음), 표지 URL만 getCoverUrl()로 그 자리에서 조립합니다.
+// 알라딘처럼 표지 URL을 만들 수 없는 서점은 이미지 자리에 자리표시자를
+// 보여줍니다 - 순위/제목/저자/등락 정보는 동일하게 다 나옵니다.
+function BookCoverCard({ row, bookstore, onShowHistory }) {
+  const coverUrl = getCoverUrl(bookstore, row);
+  const wisdom = isWisdomHouse(row.publisher);
+  const nonBook = Boolean(row.item_type) && row.item_type !== "book";
+
+  const inner = (
+    <>
+      <div className="book-cover-thumb">
+        {coverUrl ? (
+          <img src={coverUrl} alt={row.title} loading="lazy" />
+        ) : (
+          <div className="book-cover-placeholder" aria-hidden="true">
+            표지 없음
+          </div>
+        )}
+        <span className="book-cover-rank">{row.rank}</span>
+      </div>
+      <div
+        className={`book-cover-title${wisdom ? " wisdom-title" : ""}${
+          nonBook ? " non-book-text" : ""
+        }`}
+      >
+        {wisdom && <span className="wisdom-badge">위즈덤</span>}
+        {row.title}
+      </div>
+      <div className={`book-cover-sub${nonBook ? " non-book-text" : ""}`}>
+        {row.author || "저자 미상"}
+      </div>
+      <RankChange rankChange={row.rank_change} matchStatus={row.match_status} />
+    </>
+  );
+
+  return (
+    <div className={`book-cover-card${wisdom ? " wisdom" : ""}`}>
+      {row.url ? (
+        <a
+          className="book-cover-link"
+          href={row.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {inner}
+        </a>
+      ) : (
+        <div className="book-cover-link">{inner}</div>
+      )}
+      {row.isbn13 && onShowHistory && (
+        <button
+          type="button"
+          className="book-cover-history-button"
+          title="순위 변화 보기"
+          aria-label="순위 변화 보기"
+          onClick={() => onShowHistory(row.isbn13, row.title)}
+        >
+          추이
+        </button>
+      )}
+    </div>
+  );
+}
+
 // highlightSurge: 실시간·종합 탭에서 BookColumn을 렌더링할 때 true로 넘겨,
 // 20위 이상 급상승 도서를 BookRow에서 강조 표시하게 합니다. 분야별 탭은
 // 이 prop을 넘기지 않으므로 기존 표시 방식 그대로 유지됩니다.
@@ -264,6 +357,7 @@ function BookColumn({
   capRows,
   onShowHistory,
   linkType,
+  viewMode = "list",
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const visibleRows = rows.filter(
@@ -329,14 +423,30 @@ function BookColumn({
             조건에 맞는 도서가 없습니다.
           </div>
         )}
-        {visibleRows.map((row) => (
-          <BookRow
-            key={`${bookstore}-${row.rank}`}
-            row={row}
-            highlightSurge={highlightSurge}
-            onShowHistory={onShowHistory}
-          />
-        ))}
+        {viewMode === "cover" ? (
+          // "표지 보기"일 때만 이 그리드(및 그 안의 <img>)가 렌더링됩니다 -
+          // "리스트 보기"에서는 이 분기 자체가 평가되지 않으므로 표지
+          // 이미지 요청이 전혀 발생하지 않습니다(초기 로딩에 영향 없음).
+          <div className="book-cover-grid">
+            {visibleRows.map((row) => (
+              <BookCoverCard
+                key={`${bookstore}-${row.rank}`}
+                row={row}
+                bookstore={bookstore}
+                onShowHistory={onShowHistory}
+              />
+            ))}
+          </div>
+        ) : (
+          visibleRows.map((row) => (
+            <BookRow
+              key={`${bookstore}-${row.rank}`}
+              row={row}
+              highlightSurge={highlightSurge}
+              onShowHistory={onShowHistory}
+            />
+          ))
+        )}
       </div>
     </div>
   );
@@ -467,6 +577,11 @@ export default function Dashboard({
 }) {
   const [query, setQuery] = useState("");
   const [onlyWisdom, setOnlyWisdom] = useState(false);
+  // "리스트 보기"/"표지 보기" 전환. 기본값은 기존과 동일한 리스트
+  // 보기라, 이 상태를 건드리기 전까지는 화면/동작이 전혀 바뀌지
+  // 않습니다. 탭(주간/일간/실시간/분야별)과 무관한 화면 전용 설정이라
+  // URL 쿼리로 옮기지 않고 컴포넌트 state로 둡니다.
+  const [viewMode, setViewMode] = useState("list");
 
   // 선택된 탭(종합/실시간/분야)은 컴포넌트 자체 state가 아니라 URL 쿼리
   // (?view=...&category=...)에서 파생시킵니다 - 새로고침해도 URL이 그대로
@@ -1245,6 +1360,22 @@ export default function Dashboard({
             <span className="history-loading">불러오는 중...</span>
           )}
           <div className="controls-actions">
+            <div className="view-mode-toggle" role="group" aria-label="보기 방식">
+              <button
+                type="button"
+                className={`view-mode-btn${viewMode === "list" ? " active" : ""}`}
+                onClick={() => setViewMode("list")}
+              >
+                리스트 보기
+              </button>
+              <button
+                type="button"
+                className={`view-mode-btn${viewMode === "cover" ? " active" : ""}`}
+                onClick={() => setViewMode("cover")}
+              >
+                표지 보기
+              </button>
+            </div>
             {(query || onlyWisdom) && (
               <button
                 className="reset-button"
@@ -1306,6 +1437,7 @@ export default function Dashboard({
             capRows={isTotal || isRealtime}
             onShowHistory={openRankHistory}
             linkType={isRealtime ? "realtime" : isDaily ? "daily" : isTotal ? "weekly" : undefined}
+            viewMode={viewMode}
           />
         ))}
       </div>

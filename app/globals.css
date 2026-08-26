@@ -224,6 +224,34 @@ body {
   flex: 0 0 auto;
 }
 
+/* "리스트 보기"/"표지 보기" 전환. 두 버튼을 한 테두리 안에 붙여 세그먼트
+   컨트롤처럼 보이게 합니다. */
+.view-mode-toggle {
+  display: flex;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.view-mode-toggle .view-mode-btn {
+  padding: 8px 12px;
+  border: none;
+  background: #fff;
+  color: #555;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.view-mode-toggle .view-mode-btn + .view-mode-btn {
+  border-left: 1px solid #ccc;
+}
+
+.view-mode-toggle .view-mode-btn.active {
+  background: #1a1a1a;
+  color: #fff;
+  font-weight: 600;
+}
+
 /* 위즈덤하우스 필터의 기본(idle, 클릭하기 전) 배경은 위즈덤하우스
    브랜드 컬러(#fff078)를 씁니다. 마우스를 올리거나(hover) 실제로
    켜진 상태(.active)가 되면 #e0a800으로 바뀝니다. */
@@ -529,6 +557,129 @@ body {
 .rank-change.down { color: #2563eb; }
 .rank-change.new { color: #16a34a; }
 .rank-change.flat { color: #aaa; }
+
+/* "표지 보기" 그리드. 컬럼 하나(.column, 서점당)에 들어가는 카드 폭
+   기준으로 3~4열이 되도록 minmax를 잡았습니다(요청: 3~4열 그리드) -
+   서점 컬럼 자체가 3열(교보/예스24/알라딘)로 나뉜 좁은 폭이라 트렌드
+   섹션의 넓은 카드들과는 다른 값을 씁니다. .book-list의 max-height/
+   overflow-y(스크롤)는 그대로 상속해서 씁니다. */
+.book-cover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+
+.book-cover-card {
+  position: relative;
+}
+
+.book-cover-card.wisdom .book-cover-title {
+  font-weight: 700;
+}
+
+.book-cover-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.book-cover-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  background: #eee;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.book-cover-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.book-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 11px;
+  text-align: center;
+  padding: 4px;
+}
+
+.book-cover-rank {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.book-cover-title {
+  margin-top: 6px;
+  height: 2.6em;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #1a1a1a;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.book-cover-title.non-book-text {
+  color: #aaa;
+}
+
+.book-cover-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-cover-sub.non-book-text {
+  color: #aaa;
+}
+
+.book-cover-card .rank-change {
+  display: block;
+  width: auto;
+  margin-top: 3px;
+  text-align: left;
+}
+
+.book-cover-history-button {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  border: none;
+  background: rgba(255, 255, 255, 0.9);
+  color: #555;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.book-cover-history-button:hover {
+  opacity: 1;
+}
 
 .trend-section {
   padding: 8px 24px 32px 24px;
