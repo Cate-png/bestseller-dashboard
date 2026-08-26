@@ -1,0 +1,30 @@
+-- "표지 보기" 기능을 알라딘까지 확장하기 위한 스키마 변경.
+-- 교보문고/예스24는 이미 저장 중인 필드(isbn13/url)만으로 표지 URL을
+-- 프론트에서 그 자리에 조립할 수 있어 DB 변경이 필요 없었지만(components/
+-- Dashboard.jsx getCoverUrl 참고), 알라딘은 표지 URL이 ISBN13/상품 URL과
+-- 무관한 별도 자산 코드(예: image.aladin.co.kr/product/39640/49/
+-- cover200/k872130175_1.jpg)라 기존 데이터로는 조립이 불가능합니다.
+-- 알라딘 목록 페이지(이미 수집 중에 방문하는 페이지)에는 이 URL이
+-- <img class="front_cover">(또는 표시 크기에 따라 "i_cover")로 그대로
+-- 들어있어서, 수집 스크립트가 파싱 시점에 값을 뽑아 저장해두면 됩니다.
+--
+-- rankings 테이블만 대상입니다 - realtime_rankings(별도 테이블, 알라딘
+-- "지금 베스트" 실시간 수집)는 이번 범위에 포함하지 않습니다(사용자
+-- 결정, 2026-08-26).
+--
+-- nullable이고 기본값이 없어서, 이 마이그레이션 실행 자체는 기존 행에
+-- 전혀 영향을 주지 않습니다(전부 NULL로 채워짐 - 기존 과거 데이터를
+-- 소급해서 채우지 않고, 다음 수집부터 정상 저장되게 하는 것이 목표입니다
+-- - 사용자 결정). 표지 URL을 가져오지 못한 경우(파싱 실패 등)도 계속
+-- NULL로 저장되며, 프론트엔드는 NULL이면 "표지 없음" placeholder로
+-- 처리합니다(순위/제목/저자/등락 등 기존 정보 표시에는 영향 없음).
+--
+-- [중요] 이 마이그레이션은 test_save_aladin.py(및 이 파일의 parse_list를
+-- 재사용하는 test_save_aladin_category.py, test_save_aladin_daily.py)의
+-- rankings.insert() 코드가 cover_url 필드를 포함하기 시작하기 *전에*
+-- Supabase에 먼저 적용되어야 합니다. 순서가 바뀌면(컬럼 없는 상태로
+-- 코드가 먼저 배포되면) 다음 알라딘 수집이 "column cover_url does not
+-- exist" 오류로 전부 실패합니다. Supabase SQL Editor에서 이 파일 내용을
+-- 그대로 한 번 실행해주세요.
+
+alter table rankings add column if not exists cover_url text;

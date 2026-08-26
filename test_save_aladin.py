@@ -148,7 +148,21 @@ def parse_list(html: str, start_rank: int):
         url = title_tag.get("href", "")
         if url and url.startswith("/"):
             url = "https://www.aladin.co.kr" + url
-        books.append({"rank": rank, "title": title, "url": url})
+        # 표지 이미지 URL("표지 보기" 전용, 순위/제목/URL 파싱과는 무관).
+        # 목록 페이지 안에 이미 있는 <img class="front_cover">를 그대로
+        # 읽기만 할 뿐 별도 요청은 없습니다. 표시 크기에 따라 클래스가
+        # "i_cover"인 경우도 실측 확인해 함께 선택합니다. 이 두 클래스가
+        # 아닌 img.left_cover는 책 옆면 그림자 장식용이라 표지가 아니라서
+        # 제외합니다. 못 찾으면 None으로 두고(수집 실패로 처리하지 않음),
+        # 화면에서는 표지 없음으로 표시됩니다.
+        cover_tag = box.select_one("img.front_cover, img.i_cover")
+        cover_url = cover_tag.get("src", "").strip() if cover_tag else ""
+        books.append({
+            "rank": rank,
+            "title": title,
+            "url": url,
+            "cover_url": cover_url or None,
+        })
         rank += 1
 
     return books
@@ -406,6 +420,7 @@ def main():
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
             "store_category": book.get("store_category"),
+            "cover_url": book.get("cover_url"),
         }
         for book in books
     ]

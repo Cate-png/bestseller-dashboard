@@ -45,21 +45,23 @@ const STORE_LINKS = {
   },
 };
 
-// "표지 보기" 전용 표지 이미지 URL 생성. 표지 이미지 자체를 새로 크롤링/
-// API 호출하지 않고, 이미 저장돼 있는 필드(isbn13/url)만으로 각 서점의
-// 실제 이미지 서버 URL 규칙에 맞춰 프론트에서 조립합니다(DB/수집
-// 스크립트는 전혀 건드리지 않음, 2026-08-26 실측 확인):
+// "표지 보기" 전용 표지 이미지 URL 생성. 교보문고/예스24는 표지 이미지를
+// 새로 크롤링/API 호출하지 않고, 이미 저장돼 있는 필드(isbn13/url)만으로
+// 각 서점의 실제 이미지 서버 URL 규칙에 맞춰 프론트에서 조립합니다(DB/
+// 수집 스크립트는 건드리지 않음, 2026-08-26 실측 확인):
 // - 교보문고: 표지 URL이 ISBN13 하나로 결정됨
 //   (contents.kyobobook.co.kr/sih/fit-in/300x0/pdt/{isbn13}.jpg).
 // - 예스24: 표지 URL이 상품 ID로 결정되고, 그 ID가 이미 저장 중인
 //   row.url(.../product/goods/{id}) 안에 그대로 들어있어 정규식으로
 //   추출만 하면 됨(image.yes24.com/goods/{id}/L).
-// - 알라딘: 표지 URL이 ISBN13/상품 URL과 무관한 별도 자산 코드라
-//   기존 데이터만으로는 조립 불가능 - 이번 작업 범위에서 제외하고
-//   null을 돌려줍니다(수집 스크립트에 이미지 URL 파싱 추가 + DB
-//   cover_url 컬럼 추가는 별도 작업으로 남겨둠).
-// 두 서점 다 이미지 서버가 referer 체크 없이 공개 캐싱(CDN, 1년 캐시)
-// 되는 것도 직접 curl로 확인했습니다.
+// - 알라딘: 표지 URL이 ISBN13/상품 URL과 무관한 별도 자산 코드라 기존
+//   데이터만으로는 조립이 불가능해서(2026-08-26 알라딘까지 확장하며
+//   재확인), 수집 스크립트(test_save_aladin.py parse_list)가 목록
+//   페이지에서 이미 함께 파싱해 rankings.cover_url(sql/rankings_
+//   cover_url.sql)에 저장해둔 값을 그대로 씁니다. 이 값이 없는 행
+//   (과거 데이터, 파싱 실패 등)은 null이 되어 표지 없음으로 표시됩니다.
+// 이미지 서버가 referer 체크 없이 공개 캐싱(CDN, 1년 캐시)되는 것도
+// 직접 curl로 확인했습니다.
 function getCoverUrl(bookstore, row) {
   if (bookstore === "교보문고") {
     return row.isbn13
@@ -69,6 +71,9 @@ function getCoverUrl(bookstore, row) {
   if (bookstore === "예스24") {
     const match = (row.url || "").match(/\/goods\/(\d+)/);
     return match ? `https://image.yes24.com/goods/${match[1]}/L` : null;
+  }
+  if (bookstore === "알라딘") {
+    return row.cover_url || null;
   }
   return null;
 }
@@ -268,9 +273,11 @@ function BookRow({ row, highlightSurge, onShowHistory }) {
 }
 
 // "표지 보기" 전용 카드 1개. BookRow와 같은 row 데이터를 그대로 쓰고
-// (새 필드 없음), 표지 URL만 getCoverUrl()로 그 자리에서 조립합니다.
-// 알라딘처럼 표지 URL을 만들 수 없는 서점은 이미지 자리에 자리표시자를
-// 보여줍니다 - 순위/제목/저자/등락 정보는 동일하게 다 나옵니다.
+// 표지 URL만 getCoverUrl()로 구합니다(교보/예스24는 그 자리에서 조립,
+// 알라딘은 row.cover_url을 그대로 사용). 표지 URL이 없는 경우(row.
+// cover_url이 아직 없는 과거 데이터, 파싱 실패 등)는 이미지 자리에
+// 자리표시자를 보여줍니다 - 순위/제목/저자/등락 정보는 동일하게 다
+// 나옵니다.
 function BookCoverCard({ row, bookstore, onShowHistory }) {
   const coverUrl = getCoverUrl(bookstore, row);
   const wisdom = isWisdomHouse(row.publisher);

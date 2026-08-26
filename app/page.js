@@ -32,7 +32,7 @@ async function getLatestCategoryRankings(client, bookstore, category) {
   const { data, error } = await client
     .from("rankings")
     .select(
-      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, run_id, store_category, item_type"
+      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, run_id, store_category, item_type, cover_url"
     )
     .eq("bookstore", bookstore)
     .eq("category", category)

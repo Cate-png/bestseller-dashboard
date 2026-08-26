@@ -246,6 +246,7 @@ def main():
             "url": book["url"],
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
+            "cover_url": book.get("cover_url"),
         }
         for book in books
     ]
