@@ -1448,7 +1448,7 @@ export default function Dashboard({
           <SurgingBooksCard byStore={risingByStore} bookstores={bookstores} />
 
           <TrendCard
-            title="서점별 분야 분포"
+            title="🍩 서점별 분야 분포"
             className="trend-card-wide"
             titleExtra={
               <span className="info-icon-wrap" tabIndex={0}>
