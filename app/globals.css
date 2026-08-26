@@ -619,41 +619,67 @@ body {
   font-size: 12px;
 }
 
-/* "여러 서점에서 동시 상승" 전용 목록. 기존 .trend-item*은 제목 다음
-   줄에 저자·출판사·서점별 등락을 전부 한 문장으로 이어붙여 가독성이
-   떨어졌던 문제(사용자 지적, 2026-08-26)를 고쳐서, 서점별 등락을
-   문장에서 분리해 서점 브랜드색이 있는 배지(.simul-rise-badge)로
-   보여줍니다 - 몇 개 서점에서 얼마나 올랐는지 한눈에 훑을 수 있도록.
-   다른 트렌드 카드가 쓰는 .trend-item 계열 및 .trend-list 스타일은
-   건드리지 않았습니다. */
+/* "여러 서점에서 동시 상승" 전용 목록. 카드 하나에 [동시 상승 서점 수
+   배지] -> 제목(1줄) -> 저자(1줄) -> 서점별 등락(1줄) 순으로만 보여줘
+   한눈에 훑히게 하고(사용자 요청, 2026-08-26), 카드 전체를 그 도서의
+   서점 링크로 이동하는 <a>로 감쌉니다(링크가 없으면 <div>로 대체 -
+   Dashboard.jsx 참고). 다른 트렌드 카드가 쓰는 .trend-item 계열 및
+   .trend-list 스타일은 건드리지 않았습니다. */
 .simul-rise-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  /* minmax(300px, 1fr)는 이 카드가 들어가는 컨테이너 폭(.page-shell
+     max-width 1200px 기준 실사용 폭 약 1150px)에서 4개가 아니라 정확히
+     3개까지만 들어가도록 맞춘 값입니다(요청: 한 줄 4개 -> 3개). 좁은
+     화면에서는 auto-fill이 그대로 2개/1개로 줄어들어 기존과 동일하게
+     반응형입니다. */
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 10px;
 }
 
 .simul-rise-item {
+  display: block;
   padding: 10px 12px;
   border: 1px solid #eee;
   border-radius: 6px;
   background: #fafafa;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+a.simul-rise-item:hover {
+  border-color: #ccc;
+  background: #f2f2f2;
+}
+
+.simul-rise-count-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #eee;
+  color: #666;
+  font-size: 10.5px;
+  font-weight: 700;
 }
 
 .simul-rise-title {
+  margin-top: 6px;
   font-size: 13.5px;
   font-weight: 700;
+  line-height: 1.3;
   color: #1a1a1a;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.simul-rise-sub {
+.simul-rise-author {
   margin-top: 2px;
   font-size: 12px;
+  line-height: 1.3;
   color: #888;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -662,31 +688,19 @@ body {
 
 .simul-rise-stores {
   margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.simul-rise-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 999px;
   font-size: 11.5px;
-  font-weight: 600;
-  color: #fff;
-  background: #777;
+  color: #999;
+  overflow: hidden;
   white-space: nowrap;
 }
 
-.simul-rise-badge strong {
-  font-weight: 800;
+.simul-rise-store-change {
+  font-weight: 700;
 }
 
-.simul-rise-badge.kyobo { background: #2d4a3e; }
-.simul-rise-badge.yes24 { background: #1e3a8a; }
-.simul-rise-badge.aladin { background: #d9534f; }
+.simul-rise-store-change.kyobo { color: #2d4a3e; }
+.simul-rise-store-change.yes24 { color: #1e3a8a; }
+.simul-rise-store-change.aladin { color: #d9534f; }
 
 /* "분야별 종수" 표. 다른 트렌드 카드는 전부 목록(ul/li)이라 이 카드만
    유일하게 표를 씁니다 - 다른 카드 스타일에는 영향이 없습니다. */

@@ -973,6 +973,34 @@ export default function Dashboard({
     [allRows]
   );
 
+  // "여러 서점에서 동시 상승" 카드 전체를 클릭했을 때 이동할 링크를 찾기
+  // 위한 (isbn13, bookstore) -> url 조회용입니다. allRows에는 이미 각
+  // 행의 서점 원본 url이 들어있으므로, getSimultaneousRise(lib/trends.js,
+  // 어떤 도서가 몇 개 서점에서 동시 상승했는지 계산하는 로직)는 전혀
+  // 건드리지 않고 이 화면(Dashboard.jsx)에서만 조회용 맵을 만듭니다.
+  const urlByIsbnAndStore = useMemo(() => {
+    const map = new Map();
+    for (const row of allRows) {
+      if (!row.isbn13 || !row.url) continue;
+      map.set(`${row.isbn13}::${row.bookstore}`, row.url);
+    }
+    return map;
+  }, [allRows]);
+
+  // 카드에 표시된 서점(도서가 동시 상승한 서점들) 중 bookstores 순서
+  // (교보문고 -> 예스24 -> 알라딘, app/page.js BOOKSTORES와 동일)로 가장
+  // 먼저 나오는 서점의 링크를 씁니다. 우선순위 목록을 따로 두지 않고
+  // 기존 bookstores prop 순서를 그대로 재사용합니다.
+  function resolveSimultaneousRiseUrl(book) {
+    const risingStoreNames = new Set(book.stores.map((s) => s.bookstore));
+    for (const bookstore of bookstores) {
+      if (!risingStoreNames.has(bookstore)) continue;
+      const url = urlByIsbnAndStore.get(`${book.isbn13}::${bookstore}`);
+      if (url) return url;
+    }
+    return null;
+  }
+
   // 종합 탭 하단 트렌드 카드를 실시간 탭과 동일한 서점별 3열 구조로 보여줍니다.
   // risingByStore는 서점별로 완전히 독립적으로 TOP5를 계산합니다(getRisingBooksByStore
   // 참고) - 절대 임계값이나 전체 풀 상위 N개 방식이 아니라서, 한 서점의
@@ -1311,29 +1339,41 @@ export default function Dashboard({
             />
           </TrendCard>
 
-          <TrendCard title="여러 서점에서 동시 상승" className="trend-card-wide">
+          <TrendCard title="📈 여러 서점에서 동시 상승 중" className="trend-card-wide">
             {simultaneousRise.length === 0 ? (
               <p className="trend-empty">해당하는 도서가 없습니다.</p>
             ) : (
               <ul className="simul-rise-list">
-                {simultaneousRise.map((b) => (
-                  <li key={b.isbn13} className="simul-rise-item">
-                    <div className="simul-rise-title">{b.title}</div>
-                    <div className="simul-rise-sub">
-                      {b.author || "저자 미상"} · {b.publisher || "출판사 미상"}
-                    </div>
-                    <div className="simul-rise-stores">
-                      {b.stores.map((s) => (
-                        <span
-                          key={s.bookstore}
-                          className={`simul-rise-badge ${COLUMN_CLASS[s.bookstore] || ""}`}
-                        >
-                          {s.bookstore} <strong>▲{s.rank_change}</strong>
+                {simultaneousRise.map((b) => {
+                  const href = resolveSimultaneousRiseUrl(b);
+                  const CardTag = href ? "a" : "div";
+                  const cardProps = href
+                    ? { href, target: "_blank", rel: "noopener noreferrer" }
+                    : {};
+                  return (
+                    <li key={b.isbn13}>
+                      <CardTag className="simul-rise-item" {...cardProps}>
+                        <span className="simul-rise-count-badge">
+                          {b.stores.length}개 서점 동시 상승
                         </span>
-                      ))}
-                    </div>
-                  </li>
-                ))}
+                        <div className="simul-rise-title">{b.title}</div>
+                        <div className="simul-rise-author">
+                          {b.author || "저자 미상"}
+                        </div>
+                        <div className="simul-rise-stores">
+                          {b.stores.map((s, i) => (
+                            <span key={s.bookstore}>
+                              {i > 0 && " · "}
+                              <span className={`simul-rise-store-change ${COLUMN_CLASS[s.bookstore] || ""}`}>
+                                {s.bookstore} ▲{s.rank_change}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      </CardTag>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </TrendCard>
