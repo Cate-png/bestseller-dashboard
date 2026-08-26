@@ -510,6 +510,97 @@ function SurgingBooksCard({ byStore, bookstores }) {
   );
 }
 
+// rows(각 탭의 storeData를 합친 배열, 서점 원본 url 포함)에서
+// (isbn13, bookstore) -> url 조회용 Map을 만듭니다. 주간/일간/실시간
+// 탭이 각자 자기 rows로 이 함수를 호출해서 쓰므로, 다른 탭 데이터와
+// 섞이지 않습니다.
+function buildUrlLookup(rows) {
+  const map = new Map();
+  for (const row of rows) {
+    if (!row.isbn13 || !row.url) continue;
+    map.set(`${row.isbn13}::${row.bookstore}`, row.url);
+  }
+  return map;
+}
+
+// "동시 상승" 카드 전체를 클릭했을 때 이동할 링크를 찾습니다.
+// risingStoreNames(그 도서가 동시 상승한 서점 이름 집합) 중 bookstores
+// 순서(교보문고 -> 예스24 -> 알라딘, app/page.js BOOKSTORES와 동일)로
+// 가장 먼저 나오는 서점의 링크를 씁니다.
+function resolveSimultaneousRiseUrl(risingStoreNames, isbn13, bookstores, urlLookup) {
+  for (const bookstore of bookstores) {
+    if (!risingStoreNames.has(bookstore)) continue;
+    const url = urlLookup.get(`${isbn13}::${bookstore}`);
+    if (url) return url;
+  }
+  return null;
+}
+
+// "여러 서점에서 동시 상승 중" 카드. 주간/일간/실시간 탭이 전부 이
+// 컴포넌트 하나를 그대로 재사용합니다(사용자 요청 - 세 탭에 동일한 UI
+// 적용, 2026-08-26). items는 각 탭에서 이미 계산해 넘기는 동시 상승
+// 결과이고(주간/일간: lib/trends.js getSimultaneousRise, 실시간:
+// lib/realtimeInsights.js getRealtimeSimultaneousRise), 그 산출 로직은
+// 전혀 건드리지 않았습니다. 실시간 버전의 stores에는 상승하지 않은
+// 서점도 함께 들어있어서(그 서점 순위도 같이 보여주기 위한 기존 설계),
+// 이 컴포넌트가 표시 시점에 rank_change > 0인 서점만 걸러서 배지 수/
+// 목록에 씁니다 - 주간/일간 stores는 이미 상승분만 들어있어 이 필터가
+// 그대로 통과(no-op)됩니다.
+function SimultaneousRiseCard({ items, bookstores, urlLookup }) {
+  return (
+    <TrendCard title="📈 여러 서점에서 동시 상승 중" className="trend-card-wide">
+      {items.length === 0 ? (
+        <p className="trend-empty">해당하는 도서가 없습니다.</p>
+      ) : (
+        <ul className="simul-rise-list">
+          {items.map((b) => {
+            const risingStores = b.stores.filter(
+              (s) => typeof s.rank_change === "number" && s.rank_change > 0
+            );
+            if (risingStores.length < 2) return null;
+            const risingStoreNames = new Set(risingStores.map((s) => s.bookstore));
+            const href = resolveSimultaneousRiseUrl(
+              risingStoreNames,
+              b.isbn13,
+              bookstores,
+              urlLookup
+            );
+            const CardTag = href ? "a" : "div";
+            const cardProps = href
+              ? { href, target: "_blank", rel: "noopener noreferrer" }
+              : {};
+            return (
+              <li key={b.isbn13}>
+                <CardTag className="simul-rise-item" {...cardProps}>
+                  <span className="simul-rise-count-badge">
+                    {risingStores.length}개 서점 동시 상승
+                  </span>
+                  <div className="simul-rise-title">{b.title}</div>
+                  <div className="simul-rise-meta">
+                    {b.author || "저자 미상"} · {b.publisher || "출판사 미상"}
+                  </div>
+                  <div className="simul-rise-stores">
+                    {risingStores.map((s, i) => (
+                      <span key={s.bookstore}>
+                        {i > 0 && " · "}
+                        <span
+                          className={`simul-rise-store-change ${COLUMN_CLASS[s.bookstore] || ""}`}
+                        >
+                          {s.bookstore} ▲{s.rank_change}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </CardTag>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </TrendCard>
+  );
+}
+
 const TOTAL_CATEGORY = "종합";
 const REALTIME_TAB = "실시간 베스트셀러";
 // 종합 일간 베스트셀러(rankings.category="일간"). 종합(주간)/실시간과는
@@ -1088,33 +1179,10 @@ export default function Dashboard({
     [allRows]
   );
 
-  // "여러 서점에서 동시 상승" 카드 전체를 클릭했을 때 이동할 링크를 찾기
-  // 위한 (isbn13, bookstore) -> url 조회용입니다. allRows에는 이미 각
-  // 행의 서점 원본 url이 들어있으므로, getSimultaneousRise(lib/trends.js,
-  // 어떤 도서가 몇 개 서점에서 동시 상승했는지 계산하는 로직)는 전혀
-  // 건드리지 않고 이 화면(Dashboard.jsx)에서만 조회용 맵을 만듭니다.
-  const urlByIsbnAndStore = useMemo(() => {
-    const map = new Map();
-    for (const row of allRows) {
-      if (!row.isbn13 || !row.url) continue;
-      map.set(`${row.isbn13}::${row.bookstore}`, row.url);
-    }
-    return map;
-  }, [allRows]);
-
-  // 카드에 표시된 서점(도서가 동시 상승한 서점들) 중 bookstores 순서
-  // (교보문고 -> 예스24 -> 알라딘, app/page.js BOOKSTORES와 동일)로 가장
-  // 먼저 나오는 서점의 링크를 씁니다. 우선순위 목록을 따로 두지 않고
-  // 기존 bookstores prop 순서를 그대로 재사용합니다.
-  function resolveSimultaneousRiseUrl(book) {
-    const risingStoreNames = new Set(book.stores.map((s) => s.bookstore));
-    for (const bookstore of bookstores) {
-      if (!risingStoreNames.has(bookstore)) continue;
-      const url = urlByIsbnAndStore.get(`${book.isbn13}::${bookstore}`);
-      if (url) return url;
-    }
-    return null;
-  }
+  // "동시 상승" 카드 클릭 링크용 (isbn13, bookstore) -> url 조회 맵
+  // (SimultaneousRiseCard, 위 buildUrlLookup 참고). 탭마다 자기 rows로
+  // 따로 만들어서 다른 탭 데이터와 섞이지 않게 합니다.
+  const urlByIsbnAndStore = useMemo(() => buildUrlLookup(allRows), [allRows]);
 
   // 종합 탭 하단 트렌드 카드를 실시간 탭과 동일한 서점별 3열 구조로 보여줍니다.
   // risingByStore는 서점별로 완전히 독립적으로 TOP5를 계산합니다(getRisingBooksByStore
@@ -1142,6 +1210,17 @@ export default function Dashboard({
   const dailyRisingByStore = useMemo(
     () => getRisingBooksByStore(dailyAllRows, bookstores, 5),
     [dailyAllRows, bookstores]
+  );
+  // 일간 탭에도 "동시 상승" 카드를 동일하게 보여줍니다(사용자 요청,
+  // 2026-08-26) - 종합 탭과 동일한 기존 getSimultaneousRise를 dailyAllRows에
+  // 그대로 재사용합니다(새 계산 로직 없음).
+  const dailySimultaneousRise = useMemo(
+    () => getSimultaneousRise(dailyAllRows, 2, 10),
+    [dailyAllRows]
+  );
+  const dailyUrlByIsbnAndStore = useMemo(
+    () => buildUrlLookup(dailyAllRows),
+    [dailyAllRows]
   );
 
   // 분야별 종수: 종합(주간) TOP100 각 도서에 저장된 store_category(서점이
@@ -1211,6 +1290,10 @@ export default function Dashboard({
   }, [realtimeAllRows, bookstores]);
   const realtimeSimultaneousRise = useMemo(
     () => getRealtimeSimultaneousRise(realtimeAllRows, 2, 5),
+    [realtimeAllRows]
+  );
+  const realtimeUrlByIsbnAndStore = useMemo(
+    () => buildUrlLookup(realtimeAllRows),
     [realtimeAllRows]
   );
 
@@ -1471,44 +1554,11 @@ export default function Dashboard({
             />
           </TrendCard>
 
-          <TrendCard title="📈 여러 서점에서 동시 상승 중" className="trend-card-wide">
-            {simultaneousRise.length === 0 ? (
-              <p className="trend-empty">해당하는 도서가 없습니다.</p>
-            ) : (
-              <ul className="simul-rise-list">
-                {simultaneousRise.map((b) => {
-                  const href = resolveSimultaneousRiseUrl(b);
-                  const CardTag = href ? "a" : "div";
-                  const cardProps = href
-                    ? { href, target: "_blank", rel: "noopener noreferrer" }
-                    : {};
-                  return (
-                    <li key={b.isbn13}>
-                      <CardTag className="simul-rise-item" {...cardProps}>
-                        <span className="simul-rise-count-badge">
-                          {b.stores.length}개 서점 동시 상승
-                        </span>
-                        <div className="simul-rise-title">{b.title}</div>
-                        <div className="simul-rise-meta">
-                          {b.author || "저자 미상"} · {b.publisher || "출판사 미상"}
-                        </div>
-                        <div className="simul-rise-stores">
-                          {b.stores.map((s, i) => (
-                            <span key={s.bookstore}>
-                              {i > 0 && " · "}
-                              <span className={`simul-rise-store-change ${COLUMN_CLASS[s.bookstore] || ""}`}>
-                                {s.bookstore} ▲{s.rank_change}
-                              </span>
-                            </span>
-                          ))}
-                        </div>
-                      </CardTag>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </TrendCard>
+          <SimultaneousRiseCard
+            items={simultaneousRise}
+            bookstores={bookstores}
+            urlLookup={urlByIsbnAndStore}
+          />
         </div>
       </div>
       )}
@@ -1517,6 +1567,11 @@ export default function Dashboard({
       <div className="trend-section">
         <div className="trend-grid">
           <SurgingBooksCard byStore={dailyRisingByStore} bookstores={bookstores} />
+          <SimultaneousRiseCard
+            items={dailySimultaneousRise}
+            bookstores={bookstores}
+            urlLookup={dailyUrlByIsbnAndStore}
+          />
         </div>
       </div>
       )}
@@ -1526,41 +1581,11 @@ export default function Dashboard({
         <div className="realtime-insight-stack">
           <SurgingBooksCard byStore={realtimeSurgingByStore} bookstores={bookstores} />
 
-          <div className="realtime-insight-card realtime-insight-card-wide">
-            <h3>📈 여러 서점에서 동시에 상승 중</h3>
-            {realtimeSimultaneousRise.length === 0 ? (
-              <p className="trend-empty">2개 이상 서점에서 동시에 상승 중인 도서가 없습니다.</p>
-            ) : (
-              <ul>
-                {realtimeSimultaneousRise.map((b) => (
-                  <li key={b.isbn13} className="trend-item">
-                    <span className="trend-item-title">{b.title}</span>
-                    <span className="trend-item-sub">
-                      {b.author || "저자 미상"} · {b.publisher || "출판사 미상"} ·{" "}
-                      <span className="trend-item-meta-up">
-                        {b.stores
-                          .map((s) => {
-                            const change =
-                              typeof s.rank_change === "number"
-                                ? s.rank_change > 0
-                                  ? `▲${s.rank_change}`
-                                  : s.rank_change < 0
-                                  ? `▼${Math.abs(s.rank_change)}`
-                                  : "-"
-                                : s.match_status === "matched"
-                                ? "NEW"
-                                : "-";
-                            return `${s.bookstore} ${s.rank}위(${change})`;
-                          })
-                          .join(" · ")}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
+          <SimultaneousRiseCard
+            items={realtimeSimultaneousRise}
+            bookstores={bookstores}
+            urlLookup={realtimeUrlByIsbnAndStore}
+          />
         </div>
       </div>
       )}
