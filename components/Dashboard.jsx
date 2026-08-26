@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isWisdomHouse } from "../lib/wisdomhouse";
 import {
   getRisingBooksByStore,
+  getNewEntriesByStore,
   getSimultaneousRise,
 } from "../lib/trends";
 import { normalizeStoreCategory, DISPLAY_CATEGORIES } from "../lib/categoryMapping";
@@ -159,18 +160,22 @@ function RankChange({ rankChange, matchStatus }) {
   return <span className="rank-change flat">-</span>;
 }
 
-// "급상승 도서" 카드 전용 행. r.rank(서점의 실제 현재 순위)와
+// "급상승 도서"/"신규 진입" 카드 공용 행. r.rank(서점의 실제 현재 순위)와
 // r.rank_change(직전 수집 대비 등락, lib/trends.js가 이미 계산해 저장해
 // 둔 값)를 그대로 매핑해서 보여줄 뿐, 목록 안에서의 배열 순번은 전혀
 // 사용하지 않습니다. 등락 표시(▲/▼)는 이 카드만의 표기 형식이라 기존
 // RankChange(↑/↓)와는 별도 컴포넌트로 분리했습니다 - 다른 카드의 표시는
-// 건드리지 않습니다.
-function TrendRiseChange({ rankChange }) {
+// 건드리지 않습니다. matchStatus는 신규 진입 표시(rank_change가 null인
+// 이유가 "비교할 직전 순위가 없어서"인지 구분)에만 씁니다.
+function TrendRiseChange({ rankChange, matchStatus }) {
   if (typeof rankChange === "number" && rankChange > 0) {
     return <span className="trend-row-change up">▲ {rankChange}</span>;
   }
   if (typeof rankChange === "number" && rankChange < 0) {
     return <span className="trend-row-change down">▼ {Math.abs(rankChange)}</span>;
+  }
+  if (matchStatus === "matched") {
+    return <span className="trend-row-change new">NEW</span>;
   }
   return <span className="trend-row-change flat">-</span>;
 }
@@ -179,7 +184,7 @@ function TrendRiseChange({ rankChange }) {
 // 원본 페이지로 이동하는 링크로 감쌉니다(기존 BookRow의 도서명 링크 처리
 // 방식과 동일 - target="_blank"/rel="noopener noreferrer"). url이 없는
 // 행은 임의로 링크를 만들지 않고 기존과 동일하게 일반 텍스트로 둡니다.
-function TrendBookRow({ rank, title, author, publisher, rankChange, url }) {
+function TrendBookRow({ rank, title, author, publisher, rankChange, matchStatus, url }) {
   return (
     <li className="trend-row">
       <span className="trend-row-rank">{rank}위</span>
@@ -200,7 +205,7 @@ function TrendBookRow({ rank, title, author, publisher, rankChange, url }) {
           {author || "저자 미상"} · {publisher || "출판사 미상"}
         </span>
       </span>
-      <TrendRiseChange rankChange={rankChange} />
+      <TrendRiseChange rankChange={rankChange} matchStatus={matchStatus} />
     </li>
   );
 }
@@ -471,16 +476,24 @@ function TrendCard({ title, titleExtra, children, className = "" }) {
   );
 }
 
-// "지금 급상승 도서" 카드. 주간/일간/실시간 탭이 전부 이 컴포넌트 하나를
-// 그대로 재사용합니다(디자인을 각 탭마다 따로 구현하지 않음) - 탭마다 다른
-// 건 byStore에 넘기는 데이터(risingByStore/dailyRisingByStore/
-// realtimeSurgingByStore)뿐이고, 그 계산 로직(lib/trends.js,
-// lib/realtimeInsights.js)은 전혀 건드리지 않았습니다. byStore[bookstore]의
-// 각 행은 기존과 동일하게 { rank, title, author, publisher, rank_change,
-// url, isbn13 } 형태이고, url은 항상 서점 원본 데이터에 있던 값만 씁니다.
-function SurgingBooksCard({ byStore, bookstores }) {
+// "지금 급상승 도서"/"베스트셀러 신규 진입" 등 서점별 3열 목록 카드
+// 공용 컴포넌트. 주간/일간/실시간 탭이 전부 이 컴포넌트 하나를 그대로
+// 재사용합니다(디자인을 각 탭/용도마다 따로 구현하지 않음) - 탭/용도마다
+// 다른 건 title과 byStore에 넘기는 데이터(risingByStore/dailyRisingByStore/
+// realtimeSurgingByStore/newEntriesByStore)뿐이고, 그 계산 로직(lib/
+// trends.js, lib/realtimeInsights.js)은 전혀 건드리지 않았습니다.
+// byStore[bookstore]의 각 행은 기존과 동일하게 { rank, title, author,
+// publisher, rank_change, match_status, url, isbn13 } 형태이고, url은
+// 항상 서점 원본 데이터에 있던 값만 씁니다. rowKeySuffix는 같은 화면에
+// 이 컴포넌트가 여러 번 쓰일 때 React key가 겹치지 않게만 구분합니다.
+function SurgingBooksCard({
+  byStore,
+  bookstores,
+  title = "🔥 지금 급상승 도서",
+  rowKeySuffix = "surge",
+}) {
   return (
-    <TrendCard title="🔥 지금 급상승 도서" className="trend-card-wide">
+    <TrendCard title={title} className="trend-card-wide">
       {bookstores.every((b) => (byStore[b] || []).length === 0) ? (
         <p className="trend-empty">데이터가 부족합니다.</p>
       ) : (
@@ -498,12 +511,13 @@ function SurgingBooksCard({ byStore, bookstores }) {
                 <ul className="trend-row-list">
                   {byStore[bookstore].map((r) => (
                     <TrendBookRow
-                      key={`${bookstore}-${r.isbn13 || r.title}-${r.rank}-surge`}
+                      key={`${bookstore}-${r.isbn13 || r.title}-${r.rank}-${rowKeySuffix}`}
                       rank={r.rank}
                       title={r.title}
                       author={r.author}
                       publisher={r.publisher}
                       rankChange={r.rank_change}
+                      matchStatus={r.match_status}
                       url={r.url}
                     />
                   ))}
@@ -1200,6 +1214,13 @@ export default function Dashboard({
     [allRows, bookstores]
   );
 
+  // 주간 탭 전용 "베스트셀러 신규 진입": 직전 스냅샷 대비 새로 TOP100에
+  // 들어온 도서만 서점별로 뽑습니다(getNewEntriesByStore, lib/trends.js).
+  const newEntriesByStore = useMemo(
+    () => getNewEntriesByStore(allRows, bookstores, 5),
+    [allRows, bookstores]
+  );
+
   // 일간 탭 전용 "지금 급상승 도서": dailyStoreData(category="일간")만 쓰고
   // 종합(storeData)/실시간(realtimeData)과는 절대 섞지 않습니다. 계산은
   // 종합 탭과 동일하게 기존 getRisingBooksByStore를 그대로 재사용합니다
@@ -1216,6 +1237,13 @@ export default function Dashboard({
 
   const dailyRisingByStore = useMemo(
     () => getRisingBooksByStore(dailyAllRows, bookstores, 5),
+    [dailyAllRows, bookstores]
+  );
+  // 일간 탭에도 "베스트셀러 신규 진입" 카드를 동일하게 보여줍니다(사용자
+  // 요청, 2026-08-26) - 주간 탭과 동일한 기존 getNewEntriesByStore를
+  // dailyAllRows에 그대로 재사용합니다(새 계산 로직 없음).
+  const dailyNewEntriesByStore = useMemo(
+    () => getNewEntriesByStore(dailyAllRows, bookstores, 5),
     [dailyAllRows, bookstores]
   );
   // 일간 탭에도 "동시 상승" 카드를 동일하게 보여줍니다(사용자 요청,
@@ -1298,6 +1326,18 @@ export default function Dashboard({
   const realtimeSimultaneousRise = useMemo(
     () => getRealtimeSimultaneousRise(realtimeAllRows, 2, 5),
     [realtimeAllRows]
+  );
+  // 실시간 탭에도 "베스트셀러 신규 진입" 카드를 동일하게 보여줍니다
+  // (사용자 요청, 2026-08-26). realtime_rankings 행도 rank_change/
+  // match_status가 동일한 규칙으로 채워지므로(주간/일간과 동일한
+  // "matched인데 rank_change가 null이면 신규 진입" 판별), 주간/일간과
+  // 같은 기존 getNewEntriesByStore(lib/trends.js)를 그대로 재사용합니다
+  // - lib/realtimeInsights.js에 이미 있는(현재 미사용) getRealtimeNewEntries
+  // 는 서점별이 아니라 도서별로 묶는 다른 모양이라 이 카드(서점별 3열)
+  // 용도로는 쓰지 않았습니다.
+  const realtimeNewEntriesByStore = useMemo(
+    () => getNewEntriesByStore(realtimeAllRows, bookstores, 5),
+    [realtimeAllRows, bookstores]
   );
   const realtimeUrlByIsbnAndStore = useMemo(
     () => buildUrlLookup(realtimeAllRows),
@@ -1537,6 +1577,13 @@ export default function Dashboard({
         <div className="trend-grid">
           <SurgingBooksCard byStore={risingByStore} bookstores={bookstores} />
 
+          <SurgingBooksCard
+            byStore={newEntriesByStore}
+            bookstores={bookstores}
+            title="🆕 베스트셀러 신규 진입"
+            rowKeySuffix="new"
+          />
+
           <TrendCard
             title="🍩 서점별 분야 분포"
             className="trend-card-wide"
@@ -1574,6 +1621,12 @@ export default function Dashboard({
       <div className="trend-section">
         <div className="trend-grid">
           <SurgingBooksCard byStore={dailyRisingByStore} bookstores={bookstores} />
+          <SurgingBooksCard
+            byStore={dailyNewEntriesByStore}
+            bookstores={bookstores}
+            title="🆕 베스트셀러 신규 진입"
+            rowKeySuffix="new"
+          />
           <SimultaneousRiseCard
             items={dailySimultaneousRise}
             bookstores={bookstores}
@@ -1587,6 +1640,13 @@ export default function Dashboard({
       <div className="realtime-insight-section">
         <div className="realtime-insight-stack">
           <SurgingBooksCard byStore={realtimeSurgingByStore} bookstores={bookstores} />
+
+          <SurgingBooksCard
+            byStore={realtimeNewEntriesByStore}
+            bookstores={bookstores}
+            title="🆕 베스트셀러 신규 진입"
+            rowKeySuffix="new"
+          />
 
           <SimultaneousRiseCard
             items={realtimeSimultaneousRise}

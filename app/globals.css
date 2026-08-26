@@ -1191,6 +1191,7 @@ a.trend-row-title:hover {
 .trend-row-change.up { color: #d92626; }
 .trend-row-change.down { color: #2563eb; }
 .trend-row-change.flat { color: #aaa; }
+.trend-row-change.new { color: #16a34a; }
 
 .realtime-insight-section {
   padding: 8px 24px 32px 24px;
