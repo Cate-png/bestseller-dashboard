@@ -343,6 +343,7 @@ def main():
             "match_status": book["match_status"],
             "rank_change": book["rank_change"],
             "item_type": book.get("item_type"),
+            "cover_url": book.get("cover_url"),
         }
         for book in books
     ]

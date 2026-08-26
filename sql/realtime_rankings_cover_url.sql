@@ -1,0 +1,22 @@
+-- "표지 보기"를 알라딘 실시간(지금 베스트) 탭까지 확장하기 위한 스키마
+-- 변경. sql/rankings_cover_url.sql(주간/일간/분야별 - rankings 테이블)
+-- 작성 당시에는 realtime_rankings를 범위에서 제외했지만(사용자 결정,
+-- 2026-08-26), 이후 실시간 탭에도 알라딘 표지를 보여달라는 추가 요청이
+-- 있어 이 마이그레이션을 별도로 추가합니다. rankings.cover_url과 완전히
+-- 같은 이유/방식입니다 - test_save_aladin_realtime.py가
+-- test_save_aladin.py의 parse_list()를 그대로 import해서 쓰고 있어서,
+-- 그 parse_list()가 이미 채워주는 book["cover_url"]을 realtime_rankings
+-- 저장 시 함께 넣기만 하면 됩니다(추가 크롤링/API 호출 없음).
+--
+-- nullable이고 기본값이 없어서, 이 마이그레이션 실행 자체는 기존 행에
+-- 전혀 영향을 주지 않습니다(전부 NULL로 채워짐 - 과거 데이터를 소급해서
+-- 채우지 않고, 다음 실시간 수집부터 정상 저장되게 하는 것이 목표입니다).
+--
+-- [중요] 이 마이그레이션은 test_save_aladin_realtime.py의
+-- realtime_rankings.insert() 코드가 cover_url 필드를 포함하기 시작하기
+-- *전에* Supabase에 먼저 적용되어야 합니다. 순서가 바뀌면(컬럼 없는
+-- 상태로 코드가 먼저 배포되면) 다음 실시간 수집이 "column cover_url
+-- does not exist" 오류로 실패합니다. Supabase SQL Editor에서 이 파일
+-- 내용을 그대로 한 번 실행해주세요.
+
+alter table realtime_rankings add column if not exists cover_url text;

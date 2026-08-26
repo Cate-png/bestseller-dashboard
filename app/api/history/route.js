@@ -38,18 +38,15 @@ async function getSnapshotAtOrBefore(client, table, bookstore, category, at) {
 
   const collectedAt = latest.data[0].collected_at;
 
-  // cover_url은 rankings 테이블에만 있는 컬럼입니다(sql/rankings_cover_url.sql,
-  // "표지 보기" 알라딘 확장, 2026-08-26) - realtime_rankings에는 없어서
-  // scope=realtime(table="realtime_rankings")일 때 그대로 select에
-  // 넣으면 "column does not exist" 오류가 납니다. table로 분기합니다.
-  const rowsSelect =
-    table === "rankings"
-      ? "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, run_id, cover_url"
-      : "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, run_id";
-
+  // cover_url("표지 보기" 알라딘 확장, 2026-08-26): rankings.cover_url
+  // (sql/rankings_cover_url.sql)과 realtime_rankings.cover_url(sql/
+  // realtime_rankings_cover_url.sql) 둘 다 있어서 scope과 무관하게
+  // 그대로 select에 포함합니다.
   let rowsQuery = client
     .from(table)
-    .select(rowsSelect)
+    .select(
+      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, run_id, cover_url"
+    )
     .eq("bookstore", bookstore)
     .eq("collected_at", collectedAt)
     .order("rank", { ascending: true });

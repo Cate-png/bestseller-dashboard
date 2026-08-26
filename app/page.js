@@ -77,7 +77,7 @@ async function getLatestRealtimeRankings(client, bookstore) {
   const { data, error } = await client
     .from("realtime_rankings")
     .select(
-      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, item_type"
+      "rank, title, author, publisher, isbn13, url, rank_change, match_status, collected_at, bookstore, item_type, cover_url"
     )
     .eq("bookstore", bookstore)
     .eq("collected_at", collectedAt)
