@@ -1357,8 +1357,8 @@ export default function Dashboard({
                           {b.stores.length}개 서점 동시 상승
                         </span>
                         <div className="simul-rise-title">{b.title}</div>
-                        <div className="simul-rise-author">
-                          {b.author || "저자 미상"}
+                        <div className="simul-rise-meta">
+                          {b.author || "저자 미상"} · {b.publisher || "출판사 미상"}
                         </div>
                         <div className="simul-rise-stores">
                           {b.stores.map((s, i) => (
