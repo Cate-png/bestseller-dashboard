@@ -353,10 +353,10 @@ function BookCoverCard({ row, bookstore, onShowHistory }) {
 // CSS(.column.collapsed .book-list)로만 숨기고 모바일 media query 안에서만
 // 적용되므로, 데스크톱에서는 접혀 있는 상태여도 항상 목록이 그대로
 // 보입니다(기존 3열 레이아웃 유지).
-// capRows: 주간/실시간 탭에서 순위 목록을 처음엔 TOP15까지만 보여주고
+// capRows: 주간/일간/실시간 탭에서 순위 목록을 처음엔 TOP15까지만 보여주고
 // 나머지는 내부 스크롤로 보게 합니다(book-list-capped, CSS에서 높이만
 // 제한 - 데이터 자체나 rows 배열은 전혀 자르지 않으므로 검색/필터는 기존과
-// 동일하게 전체 rows를 대상으로 동작합니다). 일간/분야별 탭은 이 prop을
+// 동일하게 전체 rows를 대상으로 동작합니다). 분야별 탭은 이 prop을
 // 넘기지 않아 기존과 동일하게(데스크톱 80vh, 모바일 펼치면 전체) 동작합니다.
 function BookColumn({
   bookstore,
@@ -1564,7 +1564,7 @@ export default function Dashboard({
             onlyWisdom={onlyWisdom}
             highlightSurge={isRealtime || isTotal || isDaily}
             collapsible
-            capRows={isTotal || isRealtime}
+            capRows={isTotal || isRealtime || isDaily}
             onShowHistory={openRankHistory}
             linkType={isRealtime ? "realtime" : isDaily ? "daily" : isTotal ? "weekly" : undefined}
             viewMode={viewMode}
