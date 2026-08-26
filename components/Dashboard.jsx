@@ -565,6 +565,7 @@ function SimultaneousRiseCard({ items, bookstores, urlLookup }) {
               (s) => typeof s.rank_change === "number" && s.rank_change > 0
             );
             if (risingStores.length < 2) return null;
+            const wisdom = isWisdomHouse(b.publisher);
             const risingStoreNames = new Set(risingStores.map((s) => s.bookstore));
             const href = resolveSimultaneousRiseUrl(
               risingStoreNames,
@@ -582,7 +583,10 @@ function SimultaneousRiseCard({ items, bookstores, urlLookup }) {
                   <span className="simul-rise-count-badge">
                     {risingStores.length}개 서점 동시 상승
                   </span>
-                  <div className="simul-rise-title">{b.title}</div>
+                  <div className="simul-rise-title">
+                    {wisdom && <span className="wisdom-badge">위즈덤</span>}
+                    {b.title}
+                  </div>
                   <div className="simul-rise-meta">
                     {b.author || "저자 미상"} · {b.publisher || "출판사 미상"}
                   </div>
