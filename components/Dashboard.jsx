@@ -342,10 +342,13 @@ function BookColumn({
   );
 }
 
-function TrendCard({ title, children, className = "" }) {
+function TrendCard({ title, titleExtra, children, className = "" }) {
   return (
     <div className={`trend-card${className ? ` ${className}` : ""}`}>
-      <h3>{title}</h3>
+      <div className="trend-card-title-row">
+        <h3>{title}</h3>
+        {titleExtra}
+      </div>
       {children}
     </div>
   );
@@ -1284,7 +1287,23 @@ export default function Dashboard({
         <div className="trend-grid">
           <SurgingBooksCard byStore={risingByStore} bookstores={bookstores} />
 
-          <TrendCard title="서점별 분야 분포 (종합 TOP100 기준)" className="trend-card-wide">
+          <TrendCard
+            title="서점별 분야 분포"
+            className="trend-card-wide"
+            titleExtra={
+              <span className="info-icon-wrap" tabIndex={0}>
+                <span className="info-icon" aria-hidden="true">
+                  i
+                </span>
+                <span className="info-icon-tooltip" role="tooltip">
+                  서점별 종합 TOP 100 각 도서에 그 서점이 직접 매긴 분야(원본
+                  분류)를 그대로 집계한 비중입니다. 도서 한 권은 메인 분야
+                  하나로만 집계합니다. "미분류"는 원본 분야 정보 자체를
+                  가져오지 못한 도서입니다.
+                </span>
+              </span>
+            }
+          >
             <CategoryDistributionChart
               distribution={categoryDistribution}
               trackedCategories={DISPLAY_CATEGORIES}

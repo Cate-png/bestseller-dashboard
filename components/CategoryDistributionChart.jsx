@@ -222,27 +222,6 @@ export default function CategoryDistributionChart({
 
   return (
     <div className="category-donut-wrap">
-      <div className="category-donut-info-row">
-        <span className="info-icon-wrap" tabIndex={0}>
-          <span className="info-icon" aria-hidden="true">
-            i
-          </span>
-          <span className="info-icon-tooltip" role="tooltip">
-            서점별 종합 TOP100 각 도서에 그 서점이 직접 매긴 분야(원본
-            분류)를 그대로 집계한 비중입니다 - 도서 한 권은 분야 하나로만
-            잡히므로 가운데 숫자는 그 서점의 TOP100 도서 수와 같습니다.
-            3사 표기 차이만 있는 명백한 동의어(예: "경제/경영"·"경제
-            경영"·"경제경영")만 하나의 분야로 묶었고, 서로 다른 분야가
-            섞인 서점 고유 분류(예: "소설/시/희곡", "건강 취미")는 억지로
-            합치지 않고 원본 표기 그대로 별도 분야로 남겼습니다. 이름에
-            *가 붙은 분야는 아직 파악되지 않은 새로운 원본 분류입니다.
-            비중이 작은 분야도 묶지 않고 도넛에 각각 슬라이스로 그대로
-            보여줍니다. "미분류"는 원본 분야 정보 자체를 가져오지 못한
-            도서입니다.
-          </span>
-        </span>
-      </div>
-
       <div className="category-donut-grid">
         {bookstores.map((bookstore) => {
           const chart = chartsByStore[bookstore] || {
@@ -309,18 +288,14 @@ export default function CategoryDistributionChart({
 
       <p className="category-donut-footnote">* 아직 파악되지 않은 새로운 원본 분류</p>
 
-      <div className="category-donut-tooltip" aria-live="polite">
-        {hovered ? (
+      {hovered && (
+        <div className="category-donut-tooltip" aria-live="polite">
           <strong>
             {hovered.bookstore} · {hovered.label}
             {hovered.isOther && "*"}: {hovered.count}종
           </strong>
-        ) : (
-          <span className="category-donut-tooltip-placeholder">
-            슬라이스나 범례에 마우스를 올리면 분야별 종수가 여기에 표시됩니다.
-          </span>
-        )}
-      </div>
+        </div>
+      )}
 
       <button
         type="button"

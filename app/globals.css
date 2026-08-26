@@ -560,7 +560,17 @@ body {
 
 .trend-card h3 {
   font-size: 14px;
-  margin: 0 0 8px 0;
+  margin: 0;
+}
+
+/* 카드 제목 옆에 안내(i) 아이콘처럼 추가 요소를 붙일 때 씁니다
+   (TrendCard의 titleExtra prop). 없으면 h3만 그대로 렌더링되므로 다른
+   카드 제목에는 영향이 없습니다. */
+.trend-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .trend-card-desc {
@@ -846,10 +856,6 @@ body {
   font-size: 11.5px;
 }
 
-.category-donut-tooltip-placeholder {
-  color: #999;
-}
-
 .category-donut-uncategorized-note {
   margin: 4px 10px 0;
   font-size: 11px;
@@ -860,13 +866,6 @@ body {
   margin: 10px 0 0;
   font-size: 11px;
   color: #999;
-}
-
-.category-donut-info-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
 }
 
 .category-donut-loading-note {
