@@ -609,6 +609,75 @@ body {
   font-size: 12px;
 }
 
+/* "여러 서점에서 동시 상승" 전용 목록. 기존 .trend-item*은 제목 다음
+   줄에 저자·출판사·서점별 등락을 전부 한 문장으로 이어붙여 가독성이
+   떨어졌던 문제(사용자 지적, 2026-08-26)를 고쳐서, 서점별 등락을
+   문장에서 분리해 서점 브랜드색이 있는 배지(.simul-rise-badge)로
+   보여줍니다 - 몇 개 서점에서 얼마나 올랐는지 한눈에 훑을 수 있도록.
+   다른 트렌드 카드가 쓰는 .trend-item 계열 및 .trend-list 스타일은
+   건드리지 않았습니다. */
+.simul-rise-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.simul-rise-item {
+  padding: 10px 12px;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.simul-rise-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simul-rise-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simul-rise-stores {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.simul-rise-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #fff;
+  background: #777;
+  white-space: nowrap;
+}
+
+.simul-rise-badge strong {
+  font-weight: 800;
+}
+
+.simul-rise-badge.kyobo { background: #2d4a3e; }
+.simul-rise-badge.yes24 { background: #1e3a8a; }
+.simul-rise-badge.aladin { background: #d9534f; }
+
 /* "분야별 종수" 표. 다른 트렌드 카드는 전부 목록(ul/li)이라 이 카드만
    유일하게 표를 씁니다 - 다른 카드 스타일에는 영향이 없습니다. */
 .category-count-table-wrap {

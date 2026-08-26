@@ -5,11 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isWisdomHouse } from "../lib/wisdomhouse";
 import {
   getRisingBooksByStore,
-  getNewEntries,
   getSimultaneousRise,
-  getCommonBooks,
 } from "../lib/trends";
-import { getSteadyBooks } from "../lib/steadyBooks";
 import { normalizeStoreCategory, DISPLAY_CATEGORIES } from "../lib/categoryMapping";
 import {
   getRealtimeSurgingBooks,
@@ -100,23 +97,6 @@ function todayLocalDateStr() {
 
 function todayLocalHourStr() {
   return String(new Date().getHours()).padStart(2, "0");
-}
-
-// lib/trends.js가 이미 계산해 둔 결과(newEntries 등)를 bookstore
-// 필드로만 나누는 순수 표시용 그룹화입니다. 새로운 집계/계산은 하지 않고,
-// 각 서점 목록 안의 항목·순서·값은 그대로 유지합니다.
-function groupRowsByStore(rows, bookstores) {
-  const byStore = {};
-  for (const bookstore of bookstores) {
-    byStore[bookstore] = rows.filter((r) => r.bookstore === bookstore);
-  }
-  return byStore;
-}
-
-// "꾸준한 강세" 카드에서 서점별 현재 순위를 표시할 때 씁니다. 그 서점에서
-// 지금 TOP20 밖이면(currentRankByStore에 값이 없으면) "권외"로 보여줍니다.
-function formatSteadyRank(rank) {
-  return typeof rank === "number" ? `${rank}위` : "권외";
 }
 
 function matchesSearch(row, query) {
@@ -476,7 +456,6 @@ export default function Dashboard({
   dailyErrors = {},
   dailyCollectedAt = null,
   dailySavedAt = null,
-  steadyRows = [],
   categories = [],
   categoryData = {},
   categoryErrors = {},
@@ -986,34 +965,18 @@ export default function Dashboard({
     return merged;
   }, [bookstores, storeData]);
 
-  const newEntries = useMemo(() => getNewEntries(allRows, 10), [allRows]);
   const simultaneousRise = useMemo(
     () => getSimultaneousRise(allRows, 2, 10),
     [allRows]
-  );
-  const commonBooks = useMemo(() => getCommonBooks(allRows, 2, 10), [allRows]);
-
-  // "꾸준한 강세": 최근 7회 수집 중 TOP20을 5회 이상 유지한 도서. steadyRows는
-  // app/page.js가 이미 "최근 7회 x TOP20 이내"로 걸러 내려준 rankings 원본이고,
-  // 여기서는 lib/steadyBooks.js로 순수 집계만 합니다.
-  const steadyResult = useMemo(
-    () => getSteadyBooks(steadyRows, { bookstores, totalRounds: 7, minRounds: 5, minHits: 5, limit: 10 }),
-    [steadyRows, bookstores]
   );
 
   // 종합 탭 하단 트렌드 카드를 실시간 탭과 동일한 서점별 3열 구조로 보여줍니다.
   // risingByStore는 서점별로 완전히 독립적으로 TOP5를 계산합니다(getRisingBooksByStore
   // 참고) - 절대 임계값이나 전체 풀 상위 N개 방식이 아니라서, 한 서점의
   // rank_change가 구조적으로 크게 나와도 다른 서점이 밀려나지 않습니다.
-  // newEntriesByStore는 newEntries(lib/trends.js) 계산 결과를 bookstore로
-  // 나누기만 하는 표시 전용 그룹화입니다.
   const risingByStore = useMemo(
     () => getRisingBooksByStore(allRows, bookstores, 5),
     [allRows, bookstores]
-  );
-  const newEntriesByStore = useMemo(
-    () => groupRowsByStore(newEntries, bookstores),
-    [newEntries, bookstores]
   );
 
   // 일간 탭 전용 "지금 급상승 도서": dailyStoreData(category="일간")만 쓰고
@@ -1321,35 +1284,6 @@ export default function Dashboard({
         <div className="trend-grid">
           <SurgingBooksCard byStore={risingByStore} bookstores={bookstores} />
 
-          <TrendCard title="신규 진입 도서" className="trend-card-wide">
-            {newEntries.length === 0 ? (
-              <p className="trend-empty">데이터가 부족합니다.</p>
-            ) : (
-              <div className="realtime-store-columns">
-                {bookstores.map((bookstore) => (
-                  <div className="realtime-store-column" key={bookstore}>
-                    <div
-                      className={`realtime-store-column-header ${COLUMN_CLASS[bookstore] || ""}`}
-                    >
-                      {bookstore}
-                    </div>
-                    {(newEntriesByStore[bookstore] || []).length === 0 ? (
-                      <p className="trend-empty">데이터가 부족합니다.</p>
-                    ) : (
-                      <ul>
-                        {newEntriesByStore[bookstore].map((r) => (
-                          <li key={`${r.bookstore}-${r.isbn13}-new`}>
-                            {r.title} ({r.rank}위)
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </TrendCard>
-
           <TrendCard title="서점별 분야 분포 (종합 TOP100 기준)" className="trend-card-wide">
             <CategoryDistributionChart
               distribution={categoryDistribution}
@@ -1358,64 +1292,27 @@ export default function Dashboard({
             />
           </TrendCard>
 
-          <TrendCard title="여러 서점에서 동시 상승">
+          <TrendCard title="여러 서점에서 동시 상승" className="trend-card-wide">
             {simultaneousRise.length === 0 ? (
               <p className="trend-empty">해당하는 도서가 없습니다.</p>
             ) : (
-              <ul className="trend-list">
+              <ul className="simul-rise-list">
                 {simultaneousRise.map((b) => (
-                  <li key={b.isbn13} className="trend-item">
-                    <span className="trend-item-title">{b.title}</span>
-                    <span className="trend-item-sub">
-                      {b.author || "저자 미상"} · {b.publisher || "출판사 미상"} ·{" "}
-                      <span className="trend-item-meta-up">
-                        {b.stores
-                          .map((s) => `${s.bookstore} ↑${s.rank_change}`)
-                          .join(" · ")}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </TrendCard>
-
-          <TrendCard title="여러 서점 TOP100 공통 등장">
-            {commonBooks.length === 0 ? (
-              <p className="trend-empty">해당하는 도서가 없습니다.</p>
-            ) : (
-              <ul>
-                {commonBooks.map((b) => (
-                  <li key={b.isbn13}>
-                    {b.title} —{" "}
-                    {b.stores.map((s) => `${s.bookstore} ${s.rank}위`).join(", ")}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </TrendCard>
-
-          <TrendCard title="꾸준한 강세" className="trend-card-wide">
-            <p className="trend-card-desc">
-              최근 수집 기준 상위권을 꾸준히 유지한 도서입니다.
-            </p>
-            {steadyResult.insufficientData || steadyResult.books.length === 0 ? (
-              <p className="trend-empty">아직 충분한 비교 데이터가 없습니다.</p>
-            ) : (
-              <ul className="trend-list">
-                {steadyResult.books.map((b) => (
-                  <li key={b.isbn13} className="trend-item">
-                    <span className="trend-item-title">{b.title}</span>
-                    <span className="trend-item-sub">{b.author || "저자 미상"}</span>
-                    <span className="trend-item-sub">
-                      교보 {formatSteadyRank(b.currentRankByStore["교보문고"])} · 예스24{" "}
-                      {formatSteadyRank(b.currentRankByStore["예스24"])} · 알라딘{" "}
-                      {formatSteadyRank(b.currentRankByStore["알라딘"])}
-                    </span>
-                    <span className="trend-item-sub trend-item-meta-up">
-                      {steadyResult.roundsAvailable}회 중 {b.hitCount}회 TOP20 · 평균{" "}
-                      {b.avgRank.toFixed(1)}위
-                    </span>
+                  <li key={b.isbn13} className="simul-rise-item">
+                    <div className="simul-rise-title">{b.title}</div>
+                    <div className="simul-rise-sub">
+                      {b.author || "저자 미상"} · {b.publisher || "출판사 미상"}
+                    </div>
+                    <div className="simul-rise-stores">
+                      {b.stores.map((s) => (
+                        <span
+                          key={s.bookstore}
+                          className={`simul-rise-badge ${COLUMN_CLASS[s.bookstore] || ""}`}
+                        >
+                          {s.bookstore} <strong>▲{s.rank_change}</strong>
+                        </span>
+                      ))}
+                    </div>
                   </li>
                 ))}
               </ul>
