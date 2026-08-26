@@ -156,6 +156,21 @@ def load_realtime_list(page):
         print(f"진단: 목표({TARGET_COUNT}권)를 채우지 못했습니다({len(books)}권). 페이지 조회 실패가 원인일 수 있습니다.")
 
     books.sort(key=lambda b: b["rank"])
+
+    # 2026-08-26(실측 확인): 교보 API의 prstRnkn 자체에 원래부터 이가 빠져
+    # 있습니다(예: 9위 다음이 11위, 10위가 아예 없음 - 매 회차 몇 군데씩
+    # 발생). 교보문고 자기 사이트도 이 값을 그대로 믿지 않고 목록에 나온
+    # 순서대로 1,2,3...으로 다시 매겨서 보여주기 때문에 이용자 눈에는 빈
+    # 자리가 안 보이는데, 우리는 prstRnkn을 그대로 book["rank"]에 저장해서
+    # 화면(대시보드)에 "7위가 없다"처럼 구멍이 그대로 드러났습니다.
+    # rank_change는 위 for-loop에서 이미 원본 prstRnkn/frmrRnkn 값으로
+    # 계산이 끝난 뒤라 아래에서 rank를 다시 매겨도 영향이 없습니다 - 정렬
+    # 순서(=원본 순위 순서)만 그대로 유지한 채 화면 표시용 순위만
+    # 1..N으로 재부여합니다(교보 사이트가 실제로 보여주는 순위와 동일한
+    # 방식).
+    for display_rank, book in enumerate(books, start=1):
+        book["rank"] = display_rank
+
     # 진단 전용: 함수 속성에만 남겨 main()에서 읽게 합니다. 기존 반환값(books)
     # 모양이나 호출부 시그니처는 그대로 유지하기 위한 방식입니다.
     load_realtime_list.last_ymw_values = ymw_values
