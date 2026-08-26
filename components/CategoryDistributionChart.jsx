@@ -17,11 +17,11 @@ const COLUMN_CLASS = {
 // validate_palette.js) 기준 lightness band/chroma floor/CVD 분리/일반
 // 시야 분리/명도대비를 통과했습니다(명도대비 일부는 WARN이지만, 이
 // 컴포넌트는 범례·툴팁·표에 항상 텍스트 라벨이 함께 나오는 구조라
-// dataviz 가이드가 요구하는 보조 인코딩 조건을 충족합니다). 한 번에
-// 화면에 보이는 슬라이스는 MAX_SLICES(6)개로 여전히 제한하지만(인접
-// 슬라이스가 6개를 넘으면 구분이 흐려짐 - dataviz 가이드), "어떤 6개가
-// 보일지"만 종수로 정하고 "그 6개가 무슨 색일지"는 이 표에서 고정으로
-// 가져옵니다.
+// dataviz 가이드가 요구하는 보조 인코딩 조건을 충족합니다). 예전에는
+// 상위 6개만 슬라이스로 보여주고 나머지를 "기타"로 묶었는데(자기계발·
+// 에세이처럼 실제로는 뚜렷한 분야인데도 6위 밖이면 뭉뚱그려 보이는
+// 문제로 사용자 요청에 따라 제거, 2026-08-26) - 이제 그 서점에 실제로
+// 존재하는 분야 수만큼 전부 슬라이스로 쪼개서 보여줍니다.
 const CATEGORY_COLORS = {
   // 통합 그룹(14) - 3사 표기 차이를 하나로 묶은 표시 분야
   "경제·경영": "#d65c88",
@@ -61,8 +61,8 @@ const CATEGORY_COLORS = {
   잡지: "#910075",
   "대학교재/전문서적": "#d15d9a",
 };
+// 35개 표시 분야에 없는(아직 파악되지 않은) 원본 분류에만 쓰는 색.
 const OTHER_COLOR = "#9a9893";
-const MAX_SLICES = 6;
 
 const SIZE = 160;
 const CENTER = SIZE / 2;
@@ -163,69 +163,40 @@ export default function CategoryDistributionChart({
 
   const trackedSet = useMemo(() => new Set(trackedCategories || []), [trackedCategories]);
 
-  // 35개 표시 분야 전체(통합 그룹 + 독립 그룹)를 색상 슬롯 경쟁에 넣고,
-  // 3개 서점 합산 종수로 상위 6개를 정해 그 분야가 화면에 슬라이스로
-  // 보일지만 결정합니다(도넛이 6개를 넘으면 구분이 흐려짐 - dataviz
-  // 가이드). 상위 6개에 못 든 분야는 도넛에서만 "기타"로 묶이고(시각적
-  // 그룹핑일 뿐 - 실제 집계 데이터는 그대로 보존되어 기타에 마우스를
-  // 올리면 실제 분야명+건수가 나오고, "표로 보기"에는 35개가 각자 행으로
-  // 다 나옵니다). 어떤 색을 쓸지는 순위가 아니라 CATEGORY_COLORS(표시
-  // 분야명 -> 고정 색상)에서 그대로 가져오므로, 데이터가 바뀌어도 같은
-  // 표시 분야는 항상 같은 색입니다.
+  // 관측된 모든 분야명에 색을 배정합니다. 35개 표시 분야는
+  // CATEGORY_COLORS의 고정 색을 그대로 쓰고, 거기 없는(아직 파악되지
+  // 않은) 원본 분류만 OTHER_COLOR를 씁니다 - 상위 N개로 자르지 않고
+  // 실제 존재하는 분야 수만큼 전부 색이 배정됩니다.
   const colorByCategory = useMemo(() => {
-    const totals = new Map();
+    const map = {};
     for (const bookstore of bookstores) {
       const counts = distribution[bookstore]?.counts || {};
-      for (const [name, count] of Object.entries(counts)) {
-        if (!trackedSet.has(name)) continue;
-        totals.set(name, (totals.get(name) || 0) + count);
+      for (const name of Object.keys(counts)) {
+        if (map[name]) continue;
+        map[name] = CATEGORY_COLORS[name] || OTHER_COLOR;
       }
     }
-    const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
-    const map = {};
-    ranked.slice(0, MAX_SLICES).forEach(([name]) => {
-      map[name] = CATEGORY_COLORS[name];
-    });
     return map;
-  }, [bookstores, distribution, trackedSet]);
+  }, [bookstores, distribution]);
 
   const chartsByStore = useMemo(() => {
     const result = {};
     for (const bookstore of bookstores) {
       const dist = distribution[bookstore] || { counts: {}, uncategorized: 0, total: 0 };
-      const featured = [];
-      const otherBreakdown = [];
+      const slices = [];
       for (const [name, count] of Object.entries(dist.counts)) {
         if (count <= 0) continue;
-        if (colorByCategory[name]) {
-          featured.push({
-            key: name,
-            label: name,
-            count,
-            color: colorByCategory[name],
-            isOther: !trackedSet.has(name),
-          });
-        } else {
-          otherBreakdown.push({ label: name, count, isOther: !trackedSet.has(name) });
-        }
-      }
-      featured.sort((a, b) => b.count - a.count);
-      otherBreakdown.sort((a, b) => b.count - a.count);
-      const otherTotal = otherBreakdown.reduce((sum, o) => sum + o.count, 0);
-
-      const slices = [...featured];
-      if (otherTotal > 0) {
         slices.push({
-          key: "__other__",
-          label: "기타",
-          count: otherTotal,
-          color: OTHER_COLOR,
-          breakdown: otherBreakdown,
+          key: name,
+          label: name,
+          count,
+          color: colorByCategory[name] || OTHER_COLOR,
+          isOther: !trackedSet.has(name),
         });
       }
       slices.sort((a, b) => b.count - a.count);
 
-      const denominator = featured.reduce((sum, s) => sum + s.count, 0) + otherTotal;
+      const denominator = slices.reduce((sum, s) => sum + s.count, 0);
       result[bookstore] = {
         slices,
         denominator,
@@ -236,9 +207,8 @@ export default function CategoryDistributionChart({
     return result;
   }, [bookstores, distribution, colorByCategory, trackedSet]);
 
-  // "표로 보기"용 전체 분야명 목록(모든 서점 합쳐서, 종수 많은 순). 도넛에서
-  // "기타"로 묶인 분야도 여기서는 전부 개별 행으로 나옵니다 - 실제 관측된
-  // 표시 분야 전부라 서점마다 몇 개가 나올지는 다를 수 있습니다.
+  // "표로 보기"용 전체 분야명 목록(모든 서점 합쳐서, 종수 많은 순). 실제
+  // 관측된 표시 분야 전부라 서점마다 몇 개가 나올지는 다를 수 있습니다.
   const allCategoryNames = useMemo(() => {
     const totals = new Map();
     for (const bookstore of bookstores) {
@@ -266,11 +236,9 @@ export default function CategoryDistributionChart({
             섞인 서점 고유 분류(예: "소설/시/희곡", "건강 취미")는 억지로
             합치지 않고 원본 표기 그대로 별도 분야로 남겼습니다. 이름에
             *가 붙은 분야는 아직 파악되지 않은 새로운 원본 분류입니다.
-            도넛에서는 비중이 작은 분야를 "기타"로 묶어 보여주지만(마우스를
-            올리면 실제 분야명·종수가 그대로 나옵니다), 집계 자체에서
-            사라지는 건 아니라 "표로 보기"에는 전 분야가 각자 행으로
-            나옵니다. "미분류"는 원본 분야 정보 자체를 가져오지 못한
-            도서로, 화면의 "기타"와는 다른 별개 개념입니다.
+            비중이 작은 분야도 묶지 않고 도넛에 각각 슬라이스로 그대로
+            보여줍니다. "미분류"는 원본 분야 정보 자체를 가져오지 못한
+            도서입니다.
           </span>
         </span>
       </div>
@@ -343,19 +311,10 @@ export default function CategoryDistributionChart({
 
       <div className="category-donut-tooltip" aria-live="polite">
         {hovered ? (
-          <>
-            <strong>
-              {hovered.bookstore} · {hovered.label}
-              {hovered.isOther && "*"}: {hovered.count}종
-            </strong>
-            {hovered.breakdown && hovered.breakdown.length > 0 && (
-              <span className="category-donut-tooltip-sub">
-                {hovered.breakdown
-                  .map((b) => `${b.label}${b.isOther ? "*" : ""} ${b.count}종`)
-                  .join(" · ")}
-              </span>
-            )}
-          </>
+          <strong>
+            {hovered.bookstore} · {hovered.label}
+            {hovered.isOther && "*"}: {hovered.count}종
+          </strong>
         ) : (
           <span className="category-donut-tooltip-placeholder">
             슬라이스나 범례에 마우스를 올리면 분야별 종수가 여기에 표시됩니다.
