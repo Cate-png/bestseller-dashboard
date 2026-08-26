@@ -1580,7 +1580,7 @@ export default function Dashboard({
           <SurgingBooksCard
             byStore={newEntriesByStore}
             bookstores={bookstores}
-            title="🆕 베스트셀러 신규 진입"
+            title="🌟 베스트셀러 신규 진입"
             rowKeySuffix="new"
           />
 
@@ -1624,7 +1624,7 @@ export default function Dashboard({
           <SurgingBooksCard
             byStore={dailyNewEntriesByStore}
             bookstores={bookstores}
-            title="🆕 베스트셀러 신규 진입"
+            title="🌟 베스트셀러 신규 진입"
             rowKeySuffix="new"
           />
           <SimultaneousRiseCard
@@ -1644,7 +1644,7 @@ export default function Dashboard({
           <SurgingBooksCard
             byStore={realtimeNewEntriesByStore}
             bookstores={bookstores}
-            title="🆕 베스트셀러 신규 진입"
+            title="🌟 베스트셀러 신규 진입"
             rowKeySuffix="new"
           />
 
