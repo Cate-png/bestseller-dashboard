@@ -239,17 +239,38 @@ def load_realtime_list(page):
     return books
 
 
-def fetch_isbn13(page, url):
-    page.goto(url, timeout=30000)
-    page.wait_for_load_state("networkidle", timeout=30000)
-    page.wait_for_timeout(1000)
+ISBN_DETAIL_RETRY_COUNT = 3
 
-    meta = page.locator("meta[property='books:isbn']")
-    if meta.count() > 0:
-        content = meta.first.get_attribute("content")
-        if content:
-            return content.strip()
-    return None
+
+# 2026-08-26(실측: 예스24 실시간 순위에 있던 스테디셀러 "오디세이아"/"싯다르타"가
+# 정상적으로 판매 중인데도 '추이'가 안 뜨는 문제 확인): load_realtime_list()와
+# 완전히 같은 이유로, 상세페이지도 예스24 광고/추적 스크립트 때문에
+# networkidle 대기가 30초까지 걸리거나 타임아웃되는 경우가 있습니다.
+# load_realtime_list()는 이미 고정 대기로 고쳐뒀지만 이 함수는 그대로
+# networkidle을 쓰고 있었고, 재시도도 전혀 없어서 타임아웃 한 번이면
+# 정상 도서도 isbn13 없이 영구 저장됐습니다(직접 상세페이지에 들어가보면
+# <meta property="books:isbn">는 멀쩡히 있음 - 페이지가 아니라 대기 방식이
+# 문제). load_realtime_list()와 동일하게 networkidle 대신 goto() 후 고정
+# 대기로 바꾸고, 일시적 실패에 대비해 재시도를 추가합니다(알라딘 수집기의
+# goto_with_retry와 동일한 패턴).
+def fetch_isbn13(page, url, retries=ISBN_DETAIL_RETRY_COUNT):
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            page.goto(url, timeout=30000)
+            page.wait_for_timeout(1500)
+
+            meta = page.locator("meta[property='books:isbn']")
+            if meta.count() > 0:
+                content = meta.first.get_attribute("content")
+                if content:
+                    return content.strip()
+            return None
+        except Exception as e:
+            last_error = e
+            if attempt < retries:
+                page.wait_for_timeout(1000 * attempt)
+    raise RuntimeError(f"상세 페이지 요청이 {retries}번 모두 실패했습니다: {last_error}")
 
 
 def _fetch_one_detail(page, book):
