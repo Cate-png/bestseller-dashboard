@@ -29,9 +29,17 @@ test_save_yes24_realtime.py에서 그대로 import해서 재사용합니다(중�
 에서 제외하지 않고, item_type 컬럼(book/magazine/non_book)만 채워서
 저장합니다(test_save_yes24_realtime.py와 동일한 정책 변경).
 
-rank_change 계산: 우리 자신의 직전 '일간' 스냅샷(rankings, category="일간")과
-(isbn13, url) 기준으로 비교합니다(test_save_yes24_realtime.py와 동일한
-충돌 방지 방식). 종합(주간)과는 category가 달라 절대 섞이지 않습니다.
+2026-08-27(rank_change 계산 방식 변경): 기존에는 우리 자신의 직전 '일간'
+스냅샷과 (isbn13, url) 기준으로 비교해서 계산했으나, 이 방식은 우리가
+TOP100만 수집하기 때문에 "어제 100위 밖(예: 678위)에 있다가 오늘 100위
+안으로 들어온 책"을 실제 상승폭(예: +655) 대신 무조건 NEW로 잘못 표시하는
+문제가 있었습니다(실사용자가 예스24 사이트에서는 "▲655"로 뜨는데 우리는
+NEW로 뜬다고 확인). 실측 결과 daybestseller 페이지 각 항목(div.itemUnit)
+안에 예스24가 직접 계산한 등락 뱃지(span.rank_info, 클래스
+rank_up/rank_dn/rank_even/rank_new + em.txt.rank의 숫자)가 이미 HTML에
+그대로 들어있는 것을 확인했습니다(extract_site_rank_change() 참고). 이제는
+그 값을 그대로 읽어서 저장하며, 더 이상 우리 자신의 스냅샷과 비교하지
+않습니다 - 예스24 사이트에 표시되는 등락과 항상 일치합니다.
 
 기존 파일과의 분리:
 - test_save_yes24.py, test_save_yes24_category.py, test_save_yes24_realtime.py,
@@ -79,6 +87,32 @@ BOOKSTORE = "예스24"
 CATEGORY = "일간"
 LIST_URL = "https://www.yes24.com/product/category/daybestseller?categoryNumber=001&pageSize=100"
 TARGET_COUNT = 100
+
+
+def extract_site_rank_change(unit):
+    """항목(div.itemUnit) 안의 span.rank_info 뱃지에서 예스24가 자체적으로
+    표시하는 등락을 그대로 읽어옵니다(우리 자신의 스냅샷 비교가 아님).
+    실측 확인된 클래스: rank_up(N위 상승)/rank_dn(N위 하락)/rank_even(동일)/
+    rank_new(신규 진입). em.txt.rank에 숫자 N이 들어있고, rank_even/rank_new는
+    비어있습니다."""
+    tag = unit.select_one("span.rank_info")
+    if not tag:
+        return None
+    classes = tag.get("class", [])
+    if "rank_even" in classes:
+        return 0
+    if "rank_new" in classes:
+        return None
+    num_tag = tag.select_one("em.txt.rank")
+    num_text = num_tag.get_text(strip=True) if num_tag else ""
+    if not num_text.isdigit():
+        return None
+    num = int(num_text)
+    if "rank_up" in classes:
+        return num
+    if "rank_dn" in classes:
+        return -num
+    return None
 
 
 def load_daily_list(page):
@@ -142,42 +176,12 @@ def load_daily_list(page):
                 "author": author,
                 "publisher": publisher,
                 "item_type": item_type,
+                "rank_change": extract_site_rank_change(unit),
             }
         )
 
     books.sort(key=lambda b: b["rank"])
     return books
-
-
-def get_previous_daily_ranks(client):
-    """직전 '일간' 회차의 (isbn13, url) -> rank 매핑을 돌려줍니다. category="일간"
-    으로만 필터링하므로 종합(주간)/분야별 데이터와는 절대 섞이지 않습니다."""
-    latest = (
-        client.table("rankings")
-        .select("collected_at")
-        .eq("bookstore", BOOKSTORE)
-        .eq("category", CATEGORY)
-        .order("collected_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    if not latest.data:
-        return {}
-
-    latest_collected_at = latest.data[0]["collected_at"]
-    prev = (
-        client.table("rankings")
-        .select("isbn13, url, rank")
-        .eq("bookstore", BOOKSTORE)
-        .eq("category", CATEGORY)
-        .eq("collected_at", latest_collected_at)
-        .execute()
-    )
-    return {
-        (row["isbn13"], row["url"]): row["rank"]
-        for row in prev.data
-        if row["isbn13"]
-    }
 
 
 def main():
@@ -188,10 +192,6 @@ def main():
         sys.exit(1)
 
     client = create_client(supabase_url, supabase_key)
-
-    print("직전 예스24 '일간' 수집 결과 조회 중 (순위 변동 계산용)...")
-    prev_ranks = get_previous_daily_ranks(client)
-    print(f"직전 스냅샷 도서 수: {len(prev_ranks)}권\n")
 
     collected_at = datetime.now(timezone.utc).isoformat()
     error_message = None
@@ -225,13 +225,7 @@ def main():
         print(f"\n예스24 일간 수집이 완전히 실패했습니다: {error_message}")
 
     for book in books:
-        isbn13 = book.get("isbn13")
-        key = (isbn13, book.get("url"))
-        if isbn13 and key in prev_ranks:
-            book["rank_change"] = prev_ranks[key] - book["rank"]
-        else:
-            book["rank_change"] = None
-        book["match_status"] = "matched" if isbn13 else "no_isbn"
+        book["match_status"] = "matched" if book.get("isbn13") else "no_isbn"
 
     status = "success" if books else "failed"
 

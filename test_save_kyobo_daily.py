@@ -21,12 +21,19 @@ pbcmName/saleCmdtid 전부 동일 키). 그래서 test_save_kyobo.py의
 fetch_best_seller_page()/item_to_book()을 그대로 재사용합니다 - 새로 파싱
 로직을 만들지 않습니다.
 
-rank_change 계산 방식(주간과의 차이):
-item_to_book()이 채워주는 rank_change는 교보 API 자체의 frmrRnkn(교보 서버가
-판단한 "이전 순위") 기반입니다. 이건 그대로 두지 않고, test_save_kyobo_realtime.py
-와 동일한 방식으로 우리 자신의 직전 "일간" 스냅샷(rankings, category="일간")과
-(isbn13, url) 기준으로 다시 비교해 덮어씁니다 - "직전 일간 회차와만 비교"를
-명확히 보장하기 위함이며, 종합(주간)과는 category가 달라 절대 섞이지 않습니다.
+rank_change 계산 방식:
+item_to_book()이 채워주는 rank_change를 그대로 씁니다 - 교보 API 자체의
+frmrRnkn(교보 서버가 판단한 "이전 순위")과 prstRnkn(현재 순위)의 차이이며,
+주간 스크립트(test_save_kyobo.py)와 동일한 계산입니다.
+
+2026-08-27: 예전에는 이 값을 버리고 우리 자신의 직전 "일간" 스냅샷과
+(isbn13, url) 기준으로 다시 비교해 덮어썼습니다. 그런데 이 자체 계산 방식은
+우리가 TOP100만 수집하기 때문에 "어제 100위 밖에 있다가 오늘 100위 안으로
+크게 뛰어오른 책"을 실제 상승폭 대신 무조건 NEW로 잘못 표시하는 문제가
+있었고(예스24에서 동일한 문제를 실측 확인, 자세한 배경은
+test_save_yes24_daily.py 참고), 애초에 frmrRnkn이 교보문고 사이트 자체가
+쓰는 값이라 사이트에 표시되는 등락과 항상 일치합니다. 그래서 덮어쓰기를
+제거하고 frmrRnkn 기반 값을 그대로 저장하도록 되돌렸습니다.
 
 기존 파일과의 분리:
 - test_save_kyobo.py, test_save_kyobo_category.py, test_save_kyobo_realtime.py,
@@ -96,40 +103,6 @@ def load_daily_top100_list(page):
     return books
 
 
-def get_previous_daily_ranks(client):
-    """직전 '일간' 회차의 (isbn13, url) -> rank 매핑을 돌려줍니다. category="일간"
-    으로만 필터링하므로 종합(주간)/분야별 데이터와는 절대 섞이지 않습니다.
-    (isbn13, url) 조합을 키로 쓰는 이유는 test_save_kyobo_realtime.py에서
-    실측 확인된 것과 동일합니다 - 같은 책의 종이책/전자책이 ISBN13을
-    공유하는 경우가 있어 isbn13만 키로 쓰면 서로의 순위를 덮어씁니다."""
-    latest = (
-        client.table("rankings")
-        .select("collected_at")
-        .eq("bookstore", BOOKSTORE)
-        .eq("category", CATEGORY)
-        .order("collected_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    if not latest.data:
-        return {}
-
-    latest_collected_at = latest.data[0]["collected_at"]
-    prev = (
-        client.table("rankings")
-        .select("isbn13, url, rank")
-        .eq("bookstore", BOOKSTORE)
-        .eq("category", CATEGORY)
-        .eq("collected_at", latest_collected_at)
-        .execute()
-    )
-    return {
-        (row["isbn13"], row["url"]): row["rank"]
-        for row in prev.data
-        if row["isbn13"]
-    }
-
-
 def main():
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
@@ -138,10 +111,6 @@ def main():
         sys.exit(1)
 
     client = create_client(supabase_url, supabase_key)
-
-    print("직전 교보문고 '일간' 수집 결과 조회 중 (순위 변동 계산용)...")
-    prev_ranks = get_previous_daily_ranks(client)
-    print(f"직전 스냅샷 도서 수: {len(prev_ranks)}권\n")
 
     collected_at = datetime.now(timezone.utc).isoformat()
     error_message = None
@@ -166,18 +135,6 @@ def main():
     except Exception as e:
         error_message = str(e)
         print(f"\n교보문고 일간 수집이 완전히 실패했습니다: {error_message}")
-
-    # item_to_book()이 채워준 frmrRnkn 기반 rank_change를 우리 자신의 직전
-    # '일간' 스냅샷 비교값으로 덮어씁니다(주간과 절대 섞이지 않도록 category
-    # 필터링된 prev_ranks만 사용).
-    for book in books:
-        isbn13 = book.get("isbn13")
-        key = (isbn13, book.get("url"))
-        if isbn13 and key in prev_ranks:
-            book["rank_change"] = prev_ranks[key] - book["rank"]
-        else:
-            book["rank_change"] = None
-        book["match_status"] = "matched" if isbn13 else "no_isbn"
 
     status = "success" if books else "failed"
 
