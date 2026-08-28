@@ -35,7 +35,7 @@ const STORE_LINKS = {
     realtime: "https://store.kyobobook.co.kr/bestseller/realtime",
   },
   예스24: {
-    weekly: "https://www.yes24.com/product/category/weekbestseller?categoryNumber=001",
+    weekly: "https://www.yes24.com/product/category/bestseller?categoryNumber=001",
     daily: "https://www.yes24.com/product/category/daybestseller?categoryNumber=001",
     realtime: "https://www.yes24.com/Product/Category/RealTimeBestSeller?categoryNumber=001",
   },
