@@ -45,6 +45,7 @@ except ImportError:
 
 from categories import CATEGORIES, TOP_N, get_previous_category_ranks
 from concurrency_utils import enrich_details_concurrently
+from supabase_retry import execute_with_retry
 from test_save_aladin import (
     CONTEXT_KWARGS,
     HEADERS,
@@ -159,7 +160,7 @@ def main():
     status = "success" if all_books else "failed"
     error_message = "; ".join(f"{c}: {m}" for c, m in category_errors.items()) or None
 
-    run_insert = (
+    run_insert = execute_with_retry(
         client.table("collection_runs")
         .insert({
             "bookstore": BOOKSTORE,
@@ -167,7 +168,6 @@ def main():
             "error_message": error_message,
             "item_count": len(all_books),
         })
-        .execute()
     )
     run_id = run_insert.data[0]["id"]
     print(f"\ncollection_runs 기록 완료. run_id={run_id}, status={status}, 총 {len(all_books)}권")
@@ -193,10 +193,9 @@ def main():
 
     books_saved = 0
     if books_payload:
-        result = (
+        result = execute_with_retry(
             client.table("books")
             .upsert(books_payload, on_conflict="isbn13")
-            .execute()
         )
         books_saved = len(result.data)
     print(f"books 테이블 upsert 완료: {books_saved}건")
@@ -219,7 +218,9 @@ def main():
         }
         for book in all_books
     ]
-    rankings_result = client.table("rankings").insert(rankings_payload).execute()
+    rankings_result = execute_with_retry(
+        client.table("rankings").insert(rankings_payload)
+    )
     print(f"rankings 테이블 저장 완료: {len(rankings_result.data)}건")
 
     if category_errors:

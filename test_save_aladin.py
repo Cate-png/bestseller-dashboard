@@ -65,6 +65,7 @@ except ImportError:
     sys.exit(1)
 
 from concurrency_utils import enrich_details_concurrently
+from supabase_retry import execute_with_retry
 
 BOOKSTORE = "알라딘"
 CATEGORY = "종합"
@@ -271,26 +272,24 @@ def get_previous_ranks(client):
     run"이 항상 종합 수집이라는 보장이 없어졌습니다. category="종합" 스냅샷만
     정확히 찾기 위해 rankings에서 바로 조회하도록 바꿨습니다. 종합 TOP100 결과
     자체는 동일합니다.)"""
-    latest = (
+    latest = execute_with_retry(
         client.table("rankings")
         .select("collected_at")
         .eq("bookstore", BOOKSTORE)
         .eq("category", CATEGORY)
         .order("collected_at", desc=True)
         .limit(1)
-        .execute()
     )
     if not latest.data:
         return {}
 
     latest_collected_at = latest.data[0]["collected_at"]
-    prev_rankings = (
+    prev_rankings = execute_with_retry(
         client.table("rankings")
         .select("isbn13, rank")
         .eq("bookstore", BOOKSTORE)
         .eq("category", CATEGORY)
         .eq("collected_at", latest_collected_at)
-        .execute()
     )
     return {
         row["isbn13"]: row["rank"]
@@ -360,7 +359,7 @@ def main():
     status = "success" if books else "failed"
 
     # 4. collection_runs 기록 (전체 처리 완료 후 결과를 기록)
-    run_insert = (
+    run_insert = execute_with_retry(
         client.table("collection_runs")
         .insert({
             "bookstore": BOOKSTORE,
@@ -368,7 +367,6 @@ def main():
             "error_message": error_message,
             "item_count": len(books),
         })
-        .execute()
     )
     run_id = run_insert.data[0]["id"]
     print(f"collection_runs 기록 완료. run_id={run_id}, status={status}")
@@ -396,10 +394,9 @@ def main():
 
     books_saved = 0
     if books_payload:
-        result = (
+        result = execute_with_retry(
             client.table("books")
             .upsert(books_payload, on_conflict="isbn13")
-            .execute()
         )
         books_saved = len(result.data)
     print(f"books 테이블 upsert 완료: {books_saved}건")
@@ -424,7 +421,9 @@ def main():
         }
         for book in books
     ]
-    rankings_result = client.table("rankings").insert(rankings_payload).execute()
+    rankings_result = execute_with_retry(
+        client.table("rankings").insert(rankings_payload)
+    )
     rankings_saved = len(rankings_result.data)
     print(f"rankings 테이블 저장 완료: {rankings_saved}건")
 
@@ -434,7 +433,9 @@ def main():
     # 다릅니다. collected_at(각 rankings 행의 회차 식별자로 계속 쓰이는 값)은
     # 건드리지 않고, 화면 표시용으로만 쓰이는 run_at만 갱신합니다.
     saved_at = datetime.now(timezone.utc).isoformat()
-    client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id).execute()
+    execute_with_retry(
+        client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id)
+    )
     print(f"collection_runs.run_at을 실제 저장 완료 시각으로 갱신: {saved_at}")
 
     # 11. 최종 콘솔 출력

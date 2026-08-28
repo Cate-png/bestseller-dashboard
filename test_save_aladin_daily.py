@@ -63,6 +63,7 @@ from test_save_aladin import (
     parse_list,
     enrich_with_details,
 )
+from supabase_retry import execute_with_retry
 
 BOOKSTORE = "알라딘"
 CATEGORY = "일간"
@@ -101,26 +102,24 @@ def collect_daily_top100(page):
 def get_previous_daily_ranks(client):
     """직전 '일간' 회차의 (isbn13, url) -> rank 매핑을 돌려줍니다. category="일간"
     으로만 필터링하므로 종합(주간)/분야별 데이터와는 절대 섞이지 않습니다."""
-    latest = (
+    latest = execute_with_retry(
         client.table("rankings")
         .select("collected_at")
         .eq("bookstore", BOOKSTORE)
         .eq("category", CATEGORY)
         .order("collected_at", desc=True)
         .limit(1)
-        .execute()
     )
     if not latest.data:
         return {}
 
     latest_collected_at = latest.data[0]["collected_at"]
-    prev = (
+    prev = execute_with_retry(
         client.table("rankings")
         .select("isbn13, url, rank")
         .eq("bookstore", BOOKSTORE)
         .eq("category", CATEGORY)
         .eq("collected_at", latest_collected_at)
-        .execute()
     )
     return {
         (row["isbn13"], row["url"]): row["rank"]
@@ -184,7 +183,7 @@ def main():
 
     status = "success" if books else "failed"
 
-    run_insert = (
+    run_insert = execute_with_retry(
         client.table("collection_runs")
         .insert({
             "bookstore": BOOKSTORE,
@@ -192,7 +191,6 @@ def main():
             "error_message": error_message,
             "item_count": len(books),
         })
-        .execute()
     )
     run_id = run_insert.data[0]["id"]
     print(f"collection_runs 기록 완료. run_id={run_id}, status={status}")
@@ -224,10 +222,9 @@ def main():
 
     books_saved = 0
     if books_payload:
-        result = (
+        result = execute_with_retry(
             client.table("books")
             .upsert(books_payload, on_conflict="isbn13")
-            .execute()
         )
         books_saved = len(result.data)
     print(f"books 테이블 upsert 완료: {books_saved}건")
@@ -250,12 +247,16 @@ def main():
         }
         for book in books
     ]
-    rankings_result = client.table("rankings").insert(rankings_payload).execute()
+    rankings_result = execute_with_retry(
+        client.table("rankings").insert(rankings_payload)
+    )
     rankings_saved = len(rankings_result.data)
     print(f"rankings 테이블 저장 완료(category=일간): {rankings_saved}건")
 
     saved_at = datetime.now(timezone.utc).isoformat()
-    client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id).execute()
+    execute_with_retry(
+        client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id)
+    )
     print(f"collection_runs.run_at을 실제 저장 완료 시각으로 갱신: {saved_at}")
 
     print("\n" + "=" * 80)

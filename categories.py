@@ -32,6 +32,8 @@ test_save_aladin.py)는 이 파일을 전혀 사용하지 않으므로, 이 파�
   혼동하지 않도록 주의해야 합니다.
 """
 
+from supabase_retry import execute_with_retry
+
 TOP_N = 20
 
 CATEGORIES = [
@@ -131,25 +133,23 @@ def get_previous_category_ranks(client, bookstore, category):
     아니라 "해당 서점 + 해당 분야의 가장 최근 스냅샷"을 정확히 찾아야
     등락(rank_change) 계산이 엉키지 않습니다.
     """
-    latest = (
+    latest = execute_with_retry(
         client.table("rankings")
         .select("collected_at")
         .eq("bookstore", bookstore)
         .eq("category", category)
         .order("collected_at", desc=True)
         .limit(1)
-        .execute()
     )
     if not latest.data:
         return {}
 
     latest_collected_at = latest.data[0]["collected_at"]
-    prev_rankings = (
+    prev_rankings = execute_with_retry(
         client.table("rankings")
         .select("isbn13, rank")
         .eq("bookstore", bookstore)
         .eq("category", category)
         .eq("collected_at", latest_collected_at)
-        .execute()
     )
     return {row["isbn13"]: row["rank"] for row in prev_rankings.data if row["isbn13"]}

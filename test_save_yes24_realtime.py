@@ -97,6 +97,7 @@ except ImportError:
 from bs4 import BeautifulSoup
 
 from concurrency_utils import enrich_details_concurrently
+from supabase_retry import execute_with_retry
 
 BOOKSTORE = "예스24"
 # 2026-08-25: orozipdf-code/willbooks_rank의 scraper.py와 동일한 URL로 맞춤
@@ -314,13 +315,12 @@ def get_previous_realtime_ranks(client, now_utc=None):
     now_utc = now_utc or datetime.now(timezone.utc)
     current_hour_kst = (now_utc + timedelta(hours=9)).strftime("%Y-%m-%dT%H")
 
-    recent = (
+    recent = execute_with_retry(
         client.table("realtime_rankings")
         .select("collected_at")
         .eq("bookstore", BOOKSTORE)
         .order("collected_at", desc=True)
         .limit(500)
-        .execute()
     )
     if not recent.data:
         return {}
@@ -338,12 +338,11 @@ def get_previous_realtime_ranks(client, now_utc=None):
     if latest_collected_at is None:
         return {}
 
-    prev = (
+    prev = execute_with_retry(
         client.table("realtime_rankings")
         .select("isbn13, url, rank")
         .eq("bookstore", BOOKSTORE)
         .eq("collected_at", latest_collected_at)
-        .execute()
     )
     return {
         (row["isbn13"], row["url"]): row["rank"]
@@ -407,7 +406,7 @@ def main():
 
     status = "success" if books else "failed"
 
-    run_insert = (
+    run_insert = execute_with_retry(
         client.table("realtime_collection_runs")
         .insert({
             "bookstore": BOOKSTORE,
@@ -415,7 +414,6 @@ def main():
             "error_message": error_message,
             "item_count": len(books),
         })
-        .execute()
     )
     run_id = run_insert.data[0]["id"]
     print(f"realtime_collection_runs 기록 완료. run_id={run_id}, status={status}")
@@ -441,7 +439,9 @@ def main():
         }
         for book in books
     ]
-    rankings_result = client.table("realtime_rankings").insert(rankings_payload).execute()
+    rankings_result = execute_with_retry(
+        client.table("realtime_rankings").insert(rankings_payload)
+    )
     rankings_saved = len(rankings_result.data)
     print(f"realtime_rankings 저장 완료: {rankings_saved}건")
 

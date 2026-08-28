@@ -29,6 +29,7 @@ except ImportError:
     sys.exit(1)
 
 from categories import CATEGORIES, TOP_N
+from supabase_retry import execute_with_retry
 
 YES24_URL = "https://apis.yes24.com/v1/category/bestseller"
 BOOKSTORE = "예스24"
@@ -124,7 +125,7 @@ def main():
     status = "success" if all_rows else "failed"
     error_message = "; ".join(f"{c}: {m}" for c, m in category_errors.items()) or None
 
-    run_result = (
+    run_result = execute_with_retry(
         client.table("collection_runs")
         .insert(
             {
@@ -135,7 +136,6 @@ def main():
                 "item_count": len(all_rows),
             }
         )
-        .execute()
     )
     if not run_result.data:
         raise RuntimeError("collection_runs 저장에 실패했습니다.")
@@ -165,15 +165,15 @@ def main():
         )
 
     if book_rows:
-        supabase_result = (
-            client.table("books").upsert(book_rows, on_conflict="isbn13").execute()
+        supabase_result = execute_with_retry(
+            client.table("books").upsert(book_rows, on_conflict="isbn13")
         )
         print(f"books 저장/갱신 성공: {len(supabase_result.data)}권")
     else:
         print("books 저장/갱신 성공: 0권")
 
     ranking_rows = [{**row, "run_id": run_id} for row in all_rows]
-    client.table("rankings").insert(ranking_rows).execute()
+    execute_with_retry(client.table("rankings").insert(ranking_rows))
     print(f"rankings 저장 성공: {len(ranking_rows)}건")
 
     if category_errors:

@@ -66,6 +66,7 @@ except ImportError:
 from datetime import datetime, timezone
 
 from test_save_kyobo import USER_AGENT, fetch_best_seller_page, item_to_book
+from supabase_retry import execute_with_retry
 
 BOOKSTORE = "교보문고"
 CATEGORY = "일간"
@@ -138,7 +139,7 @@ def main():
 
     status = "success" if books else "failed"
 
-    run_insert = (
+    run_insert = execute_with_retry(
         client.table("collection_runs")
         .insert({
             "bookstore": BOOKSTORE,
@@ -146,7 +147,6 @@ def main():
             "error_message": error_message,
             "item_count": len(books),
         })
-        .execute()
     )
     run_id = run_insert.data[0]["id"]
     print(f"collection_runs 기록 완료. run_id={run_id}, status={status}")
@@ -178,7 +178,9 @@ def main():
 
     books_saved = 0
     if books_payload:
-        result = client.table("books").upsert(books_payload, on_conflict="isbn13").execute()
+        result = execute_with_retry(
+            client.table("books").upsert(books_payload, on_conflict="isbn13")
+        )
         books_saved = len(result.data)
     print(f"books 테이블 upsert 완료: {books_saved}건")
 
@@ -199,14 +201,18 @@ def main():
         }
         for book in books
     ]
-    rankings_result = client.table("rankings").insert(rankings_payload).execute()
+    rankings_result = execute_with_retry(
+        client.table("rankings").insert(rankings_payload)
+    )
     rankings_saved = len(rankings_result.data)
     print(f"rankings 테이블 저장 완료(category=일간): {rankings_saved}건")
 
     # rankings 저장이 실제로 끝난 직후의 시각을 collection_runs.run_at에
     # 기록합니다(주간 스크립트와 동일한 패턴 - "최종 업데이트" 화면 표시용).
     saved_at = datetime.now(timezone.utc).isoformat()
-    client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id).execute()
+    execute_with_retry(
+        client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id)
+    )
     print(f"collection_runs.run_at을 실제 저장 완료 시각으로 갱신: {saved_at}")
 
     print("\n" + "=" * 80)

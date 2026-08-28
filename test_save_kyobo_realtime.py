@@ -72,6 +72,7 @@ except ImportError:
     sys.exit(1)
 
 from test_save_kyobo import USER_AGENT, fetch_best_seller_page, item_to_book
+from supabase_retry import execute_with_retry
 
 BOOKSTORE = "교보문고"
 LIST_URL = "https://store.kyobobook.co.kr/bestseller/realtime"
@@ -189,24 +190,22 @@ def get_previous_realtime_ranks(client):
     (isbn13, url) 조합을 키로 써서 같은 ISBN이라도 다른 상품이면 각자
     정확히 비교되도록 합니다.
     """
-    latest = (
+    latest = execute_with_retry(
         client.table("realtime_rankings")
         .select("collected_at")
         .eq("bookstore", BOOKSTORE)
         .order("collected_at", desc=True)
         .limit(1)
-        .execute()
     )
     if not latest.data:
         return {}
 
     latest_collected_at = latest.data[0]["collected_at"]
-    prev = (
+    prev = execute_with_retry(
         client.table("realtime_rankings")
         .select("isbn13, url, rank")
         .eq("bookstore", BOOKSTORE)
         .eq("collected_at", latest_collected_at)
-        .execute()
     )
     return {
         (row["isbn13"], row["url"]): row["rank"]
@@ -293,7 +292,7 @@ def main():
 
     status = "success" if books else "failed"
 
-    run_insert = (
+    run_insert = execute_with_retry(
         client.table("realtime_collection_runs")
         .insert({
             "bookstore": BOOKSTORE,
@@ -301,7 +300,6 @@ def main():
             "error_message": error_message,
             "item_count": len(books),
         })
-        .execute()
     )
     run_id = run_insert.data[0]["id"]
     print(f"realtime_collection_runs 기록 완료. run_id={run_id}, status={status}")
@@ -327,7 +325,9 @@ def main():
         }
         for book in books
     ]
-    rankings_result = client.table("realtime_rankings").insert(rankings_payload).execute()
+    rankings_result = execute_with_retry(
+        client.table("realtime_rankings").insert(rankings_payload)
+    )
     rankings_saved = len(rankings_result.data)
     print(f"realtime_rankings 저장 완료: {rankings_saved}건")
 

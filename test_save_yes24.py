@@ -5,6 +5,7 @@ import requests
 from supabase import create_client
 
 from concurrency_utils import enrich_details_concurrently
+from supabase_retry import execute_with_retry
 
 YES24_URL = "https://apis.yes24.com/v1/category/bestseller"
 CATEGORY_ID = "001"
@@ -155,7 +156,7 @@ def main():
         category_by_url = {}
 
     # 1. 이번 수집 실행(run) 기록
-    run_result = (
+    run_result = execute_with_retry(
         supabase.table("collection_runs")
         .insert(
             {
@@ -165,7 +166,6 @@ def main():
                 "item_count": len(items),
             }
         )
-        .execute()
     )
 
     if not run_result.data:
@@ -192,10 +192,9 @@ def main():
         )
 
     if book_rows:
-        (
+        execute_with_retry(
             supabase.table("books")
             .upsert(book_rows, on_conflict="isbn13")
-            .execute()
         )
 
     print(f"books 저장/갱신 성공: {len(book_rows)}권")
@@ -240,10 +239,9 @@ def main():
     if len(ranking_rows) != len(items):
         raise RuntimeError("순위 데이터 생성 중 개수 불일치가 발생했습니다.")
 
-    (
+    execute_with_retry(
         supabase.table("rankings")
         .insert(ranking_rows)
-        .execute()
     )
 
     print(f"rankings 저장 성공: {len(ranking_rows)}건")
@@ -254,7 +252,9 @@ def main():
     # 행의 회차 식별자로 계속 쓰이는 값)은 건드리지 않고, 화면 표시용으로만
     # 쓰이는 run_at만 갱신합니다.
     saved_at = datetime.now(timezone.utc).isoformat()
-    supabase.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id).execute()
+    execute_with_retry(
+        supabase.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id)
+    )
     print(f"collection_runs.run_at을 실제 저장 완료 시각으로 갱신: {saved_at}")
     print()
     print("=" * 70)

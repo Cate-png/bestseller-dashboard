@@ -37,6 +37,8 @@ import re
 import sys
 from datetime import datetime, timezone
 
+from supabase_retry import execute_with_retry
+
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:
@@ -235,7 +237,7 @@ def main():
 
     status = "success" if books else "failed"
 
-    run_insert = (
+    run_insert = execute_with_retry(
         client.table("collection_runs")
         .insert({
             "bookstore": BOOKSTORE,
@@ -243,7 +245,6 @@ def main():
             "error_message": error_message,
             "item_count": len(books),
         })
-        .execute()
     )
     run_id = run_insert.data[0]["id"]
     print(f"collection_runs 기록 완료. run_id={run_id}, status={status}")
@@ -269,7 +270,9 @@ def main():
 
     books_saved = 0
     if books_payload:
-        result = client.table("books").upsert(books_payload, on_conflict="isbn13").execute()
+        result = execute_with_retry(
+            client.table("books").upsert(books_payload, on_conflict="isbn13")
+        )
         books_saved = len(result.data)
     print(f"books 테이블 upsert 완료: {books_saved}건")
 
@@ -291,7 +294,9 @@ def main():
         }
         for book in books
     ]
-    rankings_result = client.table("rankings").insert(rankings_payload).execute()
+    rankings_result = execute_with_retry(
+        client.table("rankings").insert(rankings_payload)
+    )
     rankings_saved = len(rankings_result.data)
     print(f"rankings 테이블 저장 완료: {rankings_saved}건")
 
@@ -301,7 +306,9 @@ def main():
     # 다릅니다. collected_at(각 rankings 행의 회차 식별자로 계속 쓰이는 값)은
     # 건드리지 않고, 화면 표시용으로만 쓰이는 run_at만 갱신합니다.
     saved_at = datetime.now(timezone.utc).isoformat()
-    client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id).execute()
+    execute_with_retry(
+        client.table("collection_runs").update({"run_at": saved_at}).eq("id", run_id)
+    )
     print(f"collection_runs.run_at을 실제 저장 완료 시각으로 갱신: {saved_at}")
 
     print("\n" + "=" * 80)
