@@ -9,6 +9,7 @@ import {
   getSimultaneousRise,
 } from "../lib/trends";
 import { normalizeStoreCategory, DISPLAY_CATEGORIES } from "../lib/categoryMapping";
+import { CATEGORY_STORE_CODES } from "../lib/categories";
 import {
   getRealtimeSurgingBooks,
   getRealtimeSimultaneousRise,
@@ -45,6 +46,26 @@ const STORE_LINKS = {
     realtime: "https://www.aladin.co.kr/shop/common/wbest.aspx?BranchType=1&BestType=NowBest",
   },
 };
+
+// 분야별 탭 전용: 서점명을 누르면 "그 분야의 주간 베스트셀러" 서점 원본
+// 페이지로 이동합니다(분야별 수집 자체가 주간 1종류뿐이라 linkType 분기가
+// 필요 없음). CATEGORY_STORE_CODES(lib/categories.js)의 서점별 분야
+// 식별자로 URL을 조립하며, 각 URL 형식은 test_save_*_category.py 3개
+// 수집 스크립트가 실제로 요청하는 형식과 동일하게 맞췄습니다.
+function getCategoryStoreLink(bookstore, category) {
+  const codes = CATEGORY_STORE_CODES[category];
+  if (!codes) return null;
+  if (bookstore === "교보문고") {
+    return `https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/${codes.kyobo}`;
+  }
+  if (bookstore === "예스24") {
+    return `https://www.yes24.com/product/category/bestseller?categoryNumber=${codes.yes24}`;
+  }
+  if (bookstore === "알라딘") {
+    return `https://www.aladin.co.kr/shop/common/wbest.aspx?BestType=Bestseller&BranchType=1&CID=${codes.aladin}`;
+  }
+  return null;
+}
 
 // "표지 보기" 전용 표지 이미지 URL 생성. 교보문고/예스24는 표지 이미지를
 // 새로 크롤링/API 호출하지 않고, 이미 저장돼 있는 필드(isbn13/url)만으로
@@ -369,6 +390,7 @@ function BookColumn({
   capRows,
   onShowHistory,
   linkType,
+  categoryLink,
   viewMode = "list",
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -377,14 +399,16 @@ function BookColumn({
   );
 
   // linkType(주간/일간/실시간)에 맞는 서점 원본 페이지 URL이 있으면
-  // 서점명 자체를 그 페이지로 이동하는 링크로 만듭니다. collapsible
-  // 헤더는 기존에 헤더 전체가 <button>(모바일 접기/펼치기)이었는데,
-  // <button> 안에 <a>를 중첩하면 유효하지 않은 HTML이라 클릭 동작이
-  // 꼬이므로, 서점명(링크)과 접기/펼치기 버튼(종수+화살표)을 분리했습니다
-  // - 데스크톱에서는 이 버튼이 시각적으로 아무 효과가 없었고(접기 CSS가
-  // 모바일 전용), 모바일에서는 이제 서점명을 누르면 이동, 종수/화살표
-  // 부분을 누르면 기존처럼 접고 펼 수 있습니다.
-  const storeHref = linkType ? STORE_LINKS[bookstore]?.[linkType] : null;
+  // 서점명 자체를 그 페이지로 이동하는 링크로 만듭니다. 분야별 탭은
+  // linkType 대신 categoryLink(getCategoryStoreLink로 미리 조립한, 그
+  // 분야 주간 베스트셀러 URL)를 씁니다. collapsible 헤더는 기존에 헤더
+  // 전체가 <button>(모바일 접기/펼치기)이었는데, <button> 안에 <a>를
+  // 중첩하면 유효하지 않은 HTML이라 클릭 동작이 꼬이므로, 서점명(링크)과
+  // 접기/펼치기 버튼(종수+화살표)을 분리했습니다 - 데스크톱에서는 이
+  // 버튼이 시각적으로 아무 효과가 없었고(접기 CSS가 모바일 전용),
+  // 모바일에서는 이제 서점명을 누르면 이동, 종수/화살표 부분을 누르면
+  // 기존처럼 접고 펼 수 있습니다.
+  const storeHref = linkType ? STORE_LINKS[bookstore]?.[linkType] : categoryLink || null;
   const storeNameNode = storeHref ? (
     <a
       href={storeHref}
@@ -1567,6 +1591,11 @@ export default function Dashboard({
             capRows={isTotal || isRealtime || isDaily}
             onShowHistory={openRankHistory}
             linkType={isRealtime ? "realtime" : isDaily ? "daily" : isTotal ? "weekly" : undefined}
+            categoryLink={
+              !isRealtime && !isDaily && !isTotal
+                ? getCategoryStoreLink(bookstore, selectedCategory)
+                : null
+            }
             viewMode={viewMode}
           />
         ))}
