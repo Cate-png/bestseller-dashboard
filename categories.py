@@ -1,4 +1,4 @@
-"""분야별(카테고리) TOP20 베스트셀러 수집에서 공통으로 사용하는 설정과 헬퍼.
+"""분야별(카테고리) TOP100 베스트셀러 수집에서 공통으로 사용하는 설정과 헬퍼.
 
 기존 종합 TOP100 수집 스크립트(test_save_kyobo.py / test_save_yes24.py /
 test_save_aladin.py)는 이 파일을 전혀 사용하지 않으므로, 이 파일을 고쳐도
@@ -34,7 +34,7 @@ test_save_aladin.py)는 이 파일을 전혀 사용하지 않으므로, 이 파�
 
 from supabase_retry import execute_with_retry
 
-TOP_N = 20
+TOP_N = 100
 
 CATEGORIES = [
     {

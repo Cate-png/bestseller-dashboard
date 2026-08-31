@@ -1,4 +1,4 @@
-"""분야별(categories.py의 CATEGORIES 14개 분야) TOP20 베스트셀러 수집 -> Supabase 저장.
+"""분야별(categories.py의 CATEGORIES 14개 분야) TOP100 베스트셀러 수집 -> Supabase 저장.
 
 test_save_kyobo.py와 동일하게 내부 JSON API 기반으로 전환했습니다(기존
 HTML 스크래핑 + 상세페이지 순회 방식 폐기). test_save_kyobo.py의
@@ -19,8 +19,9 @@ categories.py의 카테고리 코드를 그대로 재사용합니다. 응답 항
 API와 동일한 것을 확인했습니다.
 
 기존 스크립트와의 차이:
-- 분야마다 TOP20까지만 수집합니다 (목록 페이지 1페이지만 조회, per=20
-  전부 사용).
+- 분야마다 TOP100까지 수집합니다 (per=20 고정이라 목록 페이지를
+  ?page=1~5로 순서대로 열어 페이지당 20권씩 모읍니다 - test_save_kyobo.py
+  load_top100_list와 동일한 방식, URL만 분야별 목록 페이지로 바뀝니다).
 - collection_runs는 "이번 분야별 수집 전체"를 대표하는 행 1개만 남기고,
   rankings에는 분야별로 category 값을 다르게 저장합니다.
 - 분야 하나가 실패해도 나머지 분야 수집은 계속 진행합니다.
@@ -59,10 +60,29 @@ LIST_URL_BASE = "https://store.kyobobook.co.kr/bestseller/online/weekly/domestic
 
 
 def load_top_n_list(page, domestic_code, n=TOP_N):
+    """?page=1~(n/20 올림)을 순서대로 열어 페이지당 20권씩 모아 최대 n권을
+    반환합니다(test_save_kyobo.py의 load_top100_list와 동일한 페이지네이션)."""
     list_url = f"{LIST_URL_BASE}/{domestic_code}"
-    print(f"   목록 페이지 로딩 중... ({list_url})")
-    items = fetch_best_seller_page(page, list_url)
-    books = [item_to_book(item) for item in items if item.get("prstRnkn")]
+    books = []
+    pages_needed = -(-n // 20)
+
+    for page_num in range(1, pages_needed + 1):
+        page_url = list_url if page_num == 1 else f"{list_url}?page={page_num}"
+        print(f"   목록 페이지 로딩 중... ({page_url})")
+        try:
+            items = fetch_best_seller_page(page, page_url)
+        except Exception as e:
+            print(f"   진단: {page_num}페이지 조회 실패: {e}. 여기서 중단합니다.")
+            break
+
+        page_books = [item_to_book(item) for item in items if item.get("prstRnkn")]
+        books.extend(page_books)
+        print(f"   -> {page_num}페이지에서 {len(page_books)}권 추가 (누적 {len(books)}권)")
+
+        if not page_books:
+            print(f"   진단: {page_num}페이지에서 새로 추가된 도서가 없습니다. 여기서 중단합니다.")
+            break
+
     books.sort(key=lambda b: b["rank"])
     return books[:n]
 

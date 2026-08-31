@@ -1,10 +1,11 @@
 name: Bestseller Category Collection (Manual)
 
-# GitHub 웹에서 사람이 수동으로 분야별(14개) TOP20 수집만 돌리고 싶을 때 쓰는
-# 워크플로입니다. collect.yml(종합 TOP100 + 분야별, cron-job.org가 매일
-# 오전 6시 KST에 호출하는 정상 주간 수집)은 이 파일과 완전히 분리되어 있고
-# 전혀 건드리지 않았습니다 - 이 워크플로를 아무리 실행해도 종합 TOP100
-# 수집(rankings.category="종합")은 절대 실행되지 않고, rank_change 계산
+# GitHub 웹에서 사람이 수동으로 분야별(14개) TOP100 수집만 돌리고 싶을 때 쓰는
+# 워크플로입니다. collect.yml(종합 TOP100 + 분야별, cron-job.org가 하루
+# 2회 07:00/19:00 KST에 호출하는 정상 주간 수집 - 2026-08-30부터 12시간
+# 간격으로 변경됨)은 이 파일과 완전히 분리되어 있고 전혀 건드리지
+# 않았습니다 - 이 워크플로를 아무리 실행해도 종합 TOP100 수집
+# (rankings.category="종합")은 절대 실행되지 않고, rank_change 계산
 # 로직/DB 구조도 그대로입니다.
 
 on:

@@ -1,4 +1,4 @@
-"""분야별(categories.py의 CATEGORIES 14개 분야) TOP20 베스트셀러 수집 -> Supabase 저장.
+"""분야별(categories.py의 CATEGORIES 14개 분야) TOP100 베스트셀러 수집 -> Supabase 저장.
 
 기존 종합 TOP100 수집 스크립트(test_save_yes24.py)와 동일한 예스24 API
 (apis.yes24.com/v1/category/bestseller)와 YES24_API_KEY 환경변수를 그대로

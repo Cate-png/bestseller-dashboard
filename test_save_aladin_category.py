@@ -1,4 +1,4 @@
-"""분야별(categories.py의 CATEGORIES 14개 분야) TOP20 베스트셀러 수집 -> Supabase 저장.
+"""분야별(categories.py의 CATEGORIES 14개 분야) TOP100 베스트셀러 수집 -> Supabase 저장.
 
 기존 종합 TOP100 수집 스크립트(test_save_aladin.py)에서 실제로 검증된 목록/상세
 페이지 파싱 로직(parse_list, parse_detail)과 요청 함수(goto_with_retry)를 그대로
@@ -14,9 +14,9 @@ requests로 알라딘에 접근하면 "403 Client Error: Forbidden"이 발생했
 (자세한 내용은 test_save_aladin.py의 goto_with_retry 주석 참고)
 
 기존 스크립트와의 차이:
-- 분야마다 TOP20까지만 수집합니다 (기존은 TOP100을 위해 2페이지를 조회했지만,
-  여기서는 1페이지 조회 결과에서 앞 20권만 사용합니다 - 1페이지가 최대
-  50건을 주므로 페이지네이션 없이 충분합니다).
+- 분야마다 TOP100까지 수집합니다 (1페이지가 최대 50건이라, test_save_aladin.py
+  collect_top100과 동일하게 page=2&cnt=1000&SortOrder=1로 2페이지째(51~100위)를
+  추가로 열어 모읍니다).
 - collection_runs는 "이번 분야별 수집 전체"를 대표하는 행 1개만 남기고,
   rankings에는 분야별로 category 값을 다르게 저장합니다.
 - 분야 하나가 실패해도 나머지 분야 수집은 계속 진행합니다.
@@ -60,23 +60,37 @@ DETAIL_REQUEST_DELAY = 2.0
 DETAIL_CONCURRENCY = 4
 
 
-def fetch_category_list_page(page, cid: str) -> str:
+def fetch_category_list_page(page, cid: str, page_num: int = 1) -> str:
     params = {
         "BestType": "Bestseller",
         "BranchType": "1",  # 국내도서
         "CID": cid,
     }
+    if page_num > 1:
+        params["page"] = str(page_num)
+        params["cnt"] = "1000"
+        params["SortOrder"] = "1"
     query = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{LIST_URL}?{query}"
     return goto_with_retry(page, url)
 
 
 def collect_top_n(page, cid: str, n: int):
-    html = fetch_category_list_page(page, cid)
-    books = parse_list(html, start_rank=1)
-    if not books:
-        raise RuntimeError("목록 페이지에서 도서를 하나도 추출하지 못했습니다.")
-    return books[:n]
+    """목록 페이지를 1페이지(1~50위)부터 필요한 만큼(최대 2페이지, 51~100위)
+    열어 최대 n권을 모읍니다(test_save_aladin.py의 collect_top100과 동일한
+    페이지네이션)."""
+    all_books = []
+    for page_num, start_rank in ((1, 1), (2, 51)):
+        if len(all_books) >= n:
+            break
+        html = fetch_category_list_page(page, cid, page_num)
+        books = parse_list(html, start_rank=start_rank)
+        if not books:
+            if page_num == 1:
+                raise RuntimeError("목록 페이지에서 도서를 하나도 추출하지 못했습니다.")
+            break
+        all_books.extend(books)
+    return all_books[:n]
 
 
 def _fetch_one_detail(page, book):
