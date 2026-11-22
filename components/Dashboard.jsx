@@ -922,13 +922,29 @@ export default function Dashboard({
   // 선택해 보고 있는 중(userAdjustedRealtimeRef)에는 기존과 동일하게
   // 절대 건드리지 않습니다. 주간/일간/분야별 탭은 이 useEffect가
   // isRealtime일 때만 동작하므로 전혀 영향을 받지 않습니다.
+  //
+  // 2026-11-22 추가: 브라우저는 백그라운드(다른 탭/창에 가려진) 탭의
+  // setInterval을 강하게 지연시키거나 멈추는 경우가 있어(전력 절약),
+  // 실시간 탭을 열어둔 채 한참 다른 탭을 보다가 돌아오면 30초 주기가
+  // 그동안 거의 실행되지 않아 교보가 이미 다음 회차로 넘어갔는데도
+  // 화면은 예전 회차에 멈춰 있는 문제가 실측으로 확인됐습니다(사용자
+  // 보고: 14:42에 확인했는데 14:00 회차 그대로 떠 있었고, 하드
+  // 리프레시로만 최신 회차가 반영됨). 기존 30초 폴링 로직은 그대로
+  // 두고, document.visibilitychange로 탭이 다시 보이는 순간 같은
+  // 확인 로직을 즉시 한 번 더 실행하도록 보강합니다. 두 트리거(30초
+  // 주기, 탭 재활성화)가 같은 순간 겹칠 수 있어 inFlightRef로 중복
+  // 요청을 막습니다(겹치면 나중 트리거는 조용히 건너뛰고 다음
+  // 기회에 다시 확인).
   useEffect(() => {
     if (!isRealtime) return;
     const CHECK_INTERVAL_MS = 30000;
     let cancelled = false;
+    let inFlight = false;
 
-    const id = setInterval(async () => {
+    const checkForNewRealtimeRound = async () => {
+      if (inFlight) return; // 이미 확인 중이면 중복 요청 없이 건너뜀
       if (userAdjustedRealtimeRef.current) return;
+      inFlight = true;
       try {
         const params = new URLSearchParams({
           scope: "realtime",
@@ -955,13 +971,26 @@ export default function Dashboard({
           syncRealtimeToNow();
         }
       } catch (e) {
-        // 감지 실패는 조용히 무시하고 다음 주기(30초 후)에 다시 시도합니다.
+        // 감지 실패는 조용히 무시하고 다음 기회(다음 주기 또는 다음 탭
+        // 재활성화)에 다시 시도합니다.
+      } finally {
+        inFlight = false;
       }
-    }, CHECK_INTERVAL_MS);
+    };
+
+    const id = setInterval(checkForNewRealtimeRound, CHECK_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        checkForNewRealtimeRound();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRealtime, bookstores]);
